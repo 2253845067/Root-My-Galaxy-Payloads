@@ -1,7 +1,7 @@
 # Root My Galaxy Payloads
 
 This repository contains the device-specific native side of
-[Root My Galaxy](https://github.com/BuSung-dev/Root-My-Galaxy):
+[Root My Galaxy](https://github.com/2253845067/Root-My-Galaxy):
 
 - exact firmware profiles and offsets;
 - the app-domain CVE-2026-43499 exploit source and compiled payload;
@@ -15,6 +15,7 @@ It intentionally does not contain Android application source code.
 
 | Profile | Device | Firmware | Kernel/KMI | Status |
 | --- | --- | --- | --- | --- |
+| `pa3q-S938BXXS9CZE1` | Galaxy S25 Ultra `SM-S938B` | `BP4A.251205.006.S938BXXS9CZE1` | `android15-6.6` | Device-tested |
 | `pa3q-S938NKSUACZF1` | Galaxy S25 Ultra `SM-S938N` | `BP4A.251205.006.S938NKSUACZF1` | `android15-6.6` | Device-tested |
 | `pa3q-S9380ZHUBCZF1` | Galaxy S25 Ultra `SM-S9380` | `BP4A.251205.006.S9380ZHUBCZF1` | `android15-6.6` | Device-tested |
 | `e3q-S928USQS6DZF2` | Galaxy S24 Ultra `SM-S928U/SM-S928U1` (Snapdragon 8 Gen 3) | `BP4A.251205.007.S928USQS6DZF2` | `6.1.145-android14-11-33419968-abS928USQS6DZF2` | Thanks to fusiondrive |
@@ -41,6 +42,7 @@ version 2.
 ## Build
 
 ```sh
+make TARGET=pa3q-S938BXXS9CZE1 ANDROID_NDK_HOME=/path/to/android-ndk
 make TARGET=pa3q-S938NKSUACZF1 ANDROID_NDK_HOME=/path/to/android-ndk
 make TARGET=e3q-S928USQS6DZF2 ANDROID_NDK_HOME=/path/to/android-ndk
 make TARGET=essi-S721NKSSCDZF3 ANDROID_NDK_HOME=/path/to/android-ndk

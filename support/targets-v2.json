@@ -2,6 +2,47 @@
   "schemaVersion": 2,
   "targets": [
     {
+      "profileId": "pa3q-S938BXXS9CZE1",
+      "manufacturer": "samsung",
+      "model": "SM-S938B",
+      "device": "pa3q",
+      "kernelRelease": "6.6.98-android15-8-pe17667d-abogkiS938BXXS9CZE1-4k",
+      "kernelVersion": "Linux version 6.6.98-android15-8-pe17667d-abogkiS938BXXS9CZE1-4k (kleaf@build-host) (Android (11368308, +pgo, +bolt, +lto, +mlgo, based on r510928) clang version 18.0.0 (https://android.googlesource.com/toolchain/llvm-project 477610d4d0d988e69dbc3fae4fe86bff3f07f2b5), LLD 18.0.0) #1 SMP PREEMPT Sat May 9 03:56:47 UTC 2026",
+      "kernelBuildVersion": "#1 SMP PREEMPT Sat May 9 03:56:47 UTC 2026",
+      "buildDisplay": "BP4A.251205.006.S938BXXS9CZE1",
+      "buildFingerprint": "samsung/pa3qxxx/pa3q:16/BP4A.251205.006/S938BXXS9CZE1_OXM9CZE1:user/release-keys",
+      "sdk": 36,
+      "abi": "arm64-v8a",
+      "pageSize": 4096,
+      "exploit": {
+        "url": "https://raw.githubusercontent.com/2253845067/Root-My-Galaxy-Payloads/main/artifacts/pa3q-S938BXXS9CZE1/cve-2026-43499-app.so",
+        "size": 124960,
+        "sha256": "6f387330a21162e42ce5f7e2e5b67ce165b7b36b3e68da2712eac30033bd3fb8"
+      },
+      "preload": {
+        "url": "https://raw.githubusercontent.com/2253845067/Root-My-Galaxy-Payloads/main/artifacts/pa3q-S938BXXS9CZE1/cve-2026-43499",
+        "size": 95936,
+        "sha256": "8e45cf8ce4f868738fe1569289efe343f33c5261de46b4e6ff857dada1b91744"
+      },
+      "rootHelper": {
+        "url": "https://raw.githubusercontent.com/2253845067/Root-My-Galaxy-Payloads/main/artifacts/pa3q-S938BXXS9CZE1/cve-2026-43499-root",
+        "size": 23648,
+        "sha256": "7211b89a6d275d64583677ca5c35c287fa9589c0a0a4729e2a2d855c8da4160c"
+      },
+      "kernelsu": {
+        "url": "https://raw.githubusercontent.com/2253845067/Root-My-Galaxy-Payloads/main/kernelsu/ksud-s938b-cze1-kdp",
+        "size": 6407096,
+        "sha256": "fa3edcc7d168637394877b30cb1f909d762dda788ec14051f4ae79edd6562d63",
+        "module": {
+          "url": "https://raw.githubusercontent.com/2253845067/Root-My-Galaxy-Payloads/main/kernelsu/android15-6.6_kernelsu-s938b-cze1-kdp.ko",
+          "size": 4651232,
+          "sha256": "a2856b1367b9b129895b4b04282d27a4f428c6cb174040b2fb9e756e25731cc4"
+        },
+        "kmi": "android15-6.6",
+        "managerPackage": "me.weishu.kernelsu"
+      }
+    },
+    {
       "profileId": "pa3q-S938NKSUACZF1",
       "manufacturer": "samsung",
       "model": "SM-S938N",
@@ -15,11 +56,11 @@
       "abi": "arm64-v8a",
       "pageSize": 4096,
       "exploit": {
-        "url": "https://raw.githubusercontent.com/BuSung-dev/Root-My-Galaxy-Payloads/main/artifacts/pa3q-S938NKSUACZF1/cve-2026-43499-app.so",
+        "url": "https://raw.githubusercontent.com/2253845067/Root-My-Galaxy-Payloads/main/artifacts/pa3q-S938NKSUACZF1/cve-2026-43499-app.so",
         "size": 104128
       },
       "kernelsu": {
-        "url": "https://raw.githubusercontent.com/BuSung-dev/Root-My-Galaxy-Payloads/main/kernelsu/ksud-s25u-kdp",
+        "url": "https://raw.githubusercontent.com/2253845067/Root-My-Galaxy-Payloads/main/kernelsu/ksud-s25u-kdp",
         "size": 6407096,
         "kmi": "android15-6.6",
         "managerPackage": "me.weishu.kernelsu"
@@ -39,11 +80,11 @@
       "abi": "arm64-v8a",
       "pageSize": 4096,
       "exploit": {
-        "url": "https://raw.githubusercontent.com/BuSung-dev/Root-My-Galaxy-Payloads/main/artifacts/pa3q-S9380ZHUBCZF1/cve-2026-43499-app.so",
+        "url": "https://raw.githubusercontent.com/2253845067/Root-My-Galaxy-Payloads/main/artifacts/pa3q-S9380ZHUBCZF1/cve-2026-43499-app.so",
         "size": 104128
       },      
       "kernelsu": {
-        "url": "https://raw.githubusercontent.com/BuSung-dev/Root-My-Galaxy-Payloads/main/kernelsu/ksud-s25u-kdp",
+        "url": "https://raw.githubusercontent.com/2253845067/Root-My-Galaxy-Payloads/main/kernelsu/ksud-s25u-kdp",
         "size": 6407096,
         "kmi": "android15-6.6",
         "managerPackage": "me.weishu.kernelsu"
@@ -63,11 +104,11 @@
       "abi": "arm64-v8a",
       "pageSize": 4096,
       "exploit": {
-        "url": "https://raw.githubusercontent.com/BuSung-dev/Root-My-Galaxy-Payloads/main/artifacts/e3q-S928USQS6DZF2/cve-2026-43499-app.so",
+        "url": "https://raw.githubusercontent.com/2253845067/Root-My-Galaxy-Payloads/main/artifacts/e3q-S928USQS6DZF2/cve-2026-43499-app.so",
         "size": 104128
       },
       "kernelsu": {
-        "url": "https://raw.githubusercontent.com/BuSung-dev/Root-My-Galaxy-Payloads/main/kernelsu/ksud-e3q-S928USQS6DZF2-kdp",
+        "url": "https://raw.githubusercontent.com/2253845067/Root-My-Galaxy-Payloads/main/kernelsu/ksud-e3q-S928USQS6DZF2-kdp",
         "size": 4726416,
         "kmi": "android14-6.1",
         "managerPackage": "me.weishu.kernelsu"

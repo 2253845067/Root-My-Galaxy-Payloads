@@ -26,8 +26,10 @@
 #define BOOTSTRAP_SOCK_PATH "/data/local/tmp/temp_su.sock"
 #define HOLD_READY_SOCKET "cve43499_roothold"
 #define SH_PATH "/system/bin/sh"
-#define S25U_KSUD_PATH "/data/local/tmp/ksud-s25u-kdp"
+#define S25U_KSUD_PATH "/data/local/tmp/.ksud-stage"
+#define S938B_KO_PATH "/data/local/tmp/android15-6.6_kernelsu-s938b-cze1-kdp.ko"
 #define LOGCAT_PATH "/system/bin/logcat"
+#define S938B_KO_MOUNT_PATH "/system/bin/sh"
 
 static uid_t allowed_client_uid = 2000;
 
@@ -491,6 +493,54 @@ static int run_s25u_late_load(struct su_request *request, int conn) {
   return wait_status(pid);
 }
 
+static int run_s938b_insmod(struct su_request *request, int conn) {
+  pid_t pid = fork();
+  if (pid < 0) {
+    return 1;
+  }
+  if (pid == 0) {
+    if (dup2(request->stdin_fd, STDIN_FILENO) < 0 ||
+        dup2(request->stdout_fd, STDOUT_FILENO) < 0 ||
+        dup2(request->stderr_fd, STDERR_FILENO) < 0 ||
+        fchdir(request->cwd_fd) != 0) {
+      _exit(126);
+    }
+    close(conn);
+    close_request_fds(request);
+    if (unshare(CLONE_NEWNS) != 0 ||
+        mount(NULL, "/", NULL, MS_REC | MS_PRIVATE, NULL) != 0) {
+      dprintf(STDERR_FILENO, "insmod: private mount namespace: %s\n",
+              strerror(errno));
+      _exit(10);
+    }
+    if (mount(S25U_KSUD_PATH, LOGCAT_PATH, NULL, MS_BIND, NULL) != 0) {
+      dprintf(STDERR_FILENO, "insmod: bind mount: %s\n", strerror(errno));
+      _exit(11);
+    }
+    if (mount(S938B_KO_PATH, S938B_KO_MOUNT_PATH, NULL, MS_BIND, NULL) != 0) {
+      dprintf(STDERR_FILENO, "insmod: module bind mount: %s\n",
+              strerror(errno));
+      _exit(11);
+    }
+
+    pid_t loader = fork();
+    if (loader < 0) {
+      dprintf(STDERR_FILENO, "insmod: fork: %s\n", strerror(errno));
+      _exit(12);
+    }
+    if (loader == 0) {
+      execl(LOGCAT_PATH, "logcat", "insmod", S938B_KO_MOUNT_PATH,
+            "allow_shell=1", (char *)NULL);
+      dprintf(STDERR_FILENO, "insmod: exec: %s\n", strerror(errno));
+      _exit(127);
+    }
+
+    _exit(wait_status(loader));
+  }
+  close_request_fds(request);
+  return wait_status(pid);
+}
+
 static void send_response(int conn, int status) {
   struct su_response response = {
       .magic = SU_RESPONSE_MAGIC,
@@ -835,7 +885,11 @@ static void serve_one(int conn) {
 
   int is_s25u_late_load = request.header.argc == 2 &&
                            strcmp(request.argv[1], "--late-load") == 0;
-  int status = is_s25u_late_load
+  int is_s938b_insmod = request.header.argc == 2 &&
+                        strcmp(request.argv[1], "--insmod") == 0;
+  int status = is_s938b_insmod
+                   ? run_s938b_insmod(&request, conn)
+                   : is_s25u_late_load
                    ? run_s25u_late_load(&request, conn)
                    : request.header.interactive
                          ? run_interactive(&request, conn)
