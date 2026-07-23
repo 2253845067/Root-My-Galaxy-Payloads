@@ -29,7 +29,7 @@
 #define S25U_KSUD_PATH "/data/local/tmp/.ksud-stage"
 #define S938B_KO_PATH "/data/local/tmp/android15-6.6_kernelsu-s938b-cze1-kdp.ko"
 #define LOGCAT_PATH "/system/bin/logcat"
-#define S938B_KO_MOUNT_PATH "/system/bin/sh"
+#define S938B_KO_MOUNT_PATH "/data/local/tmp/.s938b-module.ko"
 
 static uid_t allowed_client_uid = 2000;
 
@@ -517,6 +517,13 @@ static int run_s938b_insmod(struct su_request *request, int conn) {
       dprintf(STDERR_FILENO, "insmod: bind mount: %s\n", strerror(errno));
       _exit(11);
     }
+    int module_target = open(S938B_KO_MOUNT_PATH, O_CREAT | O_RDWR | O_CLOEXEC,
+                             0600);
+    if (module_target < 0) {
+      dprintf(STDERR_FILENO, "insmod: module target: %s\n", strerror(errno));
+      _exit(11);
+    }
+    close(module_target);
     if (mount(S938B_KO_PATH, S938B_KO_MOUNT_PATH, NULL, MS_BIND, NULL) != 0) {
       dprintf(STDERR_FILENO, "insmod: module bind mount: %s\n",
               strerror(errno));
@@ -535,7 +542,11 @@ static int run_s938b_insmod(struct su_request *request, int conn) {
       _exit(127);
     }
 
-    _exit(wait_status(loader));
+    int loader_status = wait_status(loader);
+    if (loader_status != 0) {
+      _exit(loader_status);
+    }
+    _exit(verify_kernelsu_control());
   }
   close_request_fds(request);
   return wait_status(pid);
