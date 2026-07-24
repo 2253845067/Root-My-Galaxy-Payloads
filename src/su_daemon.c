@@ -29,7 +29,7 @@
 #define S25U_KSUD_PATH "/data/local/tmp/.ksud-stage"
 #define S938B_KO_PATH "/data/local/tmp/android15-6.6_kernelsu-s938b-cze1-kdp.ko"
 #define LOGCAT_PATH "/system/bin/logcat"
-#define S938B_KO_MOUNT_PATH "/data/local/tmp/.s938b-module.ko"
+#define S938B_KO_MOUNT_PATH "/data/local/tmp/ksud-s25u-kdp"
 
 static uid_t allowed_client_uid = 2000;
 
@@ -517,8 +517,7 @@ static int run_s938b_insmod(struct su_request *request, int conn) {
       dprintf(STDERR_FILENO, "insmod: bind mount: %s\n", strerror(errno));
       _exit(11);
     }
-    int module_target = open(S938B_KO_MOUNT_PATH, O_CREAT | O_RDWR | O_CLOEXEC,
-                             0600);
+    int module_target = open(S938B_KO_MOUNT_PATH, O_RDONLY | O_CLOEXEC);
     if (module_target < 0) {
       dprintf(STDERR_FILENO, "insmod: module target: %s\n", strerror(errno));
       _exit(11);

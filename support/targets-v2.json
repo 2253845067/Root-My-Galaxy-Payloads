@@ -26,8 +26,8 @@
       },
       "rootHelper": {
         "url": "https://raw.githubusercontent.com/2253845067/Root-My-Galaxy-Payloads/main/artifacts/pa3q-S938BXXS9CZE1/cve-2026-43499-root",
-        "size": 23712,
-        "sha256": "702bc17757e2224d79b5580f94368a57bcbe13fa526b70b37c8dc1207a863704"
+        "size": 23888,
+        "sha256": "b1f8a186d07d5957b4f5572f411f0fda241304d7865fa7460ab522e7ede46b1b"
       },
       "kernelsu": {
         "url": "https://raw.githubusercontent.com/2253845067/Root-My-Galaxy-Payloads/main/kernelsu/ksud-s938b-cze1-kdp",
