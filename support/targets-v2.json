@@ -16,8 +16,8 @@
       "pageSize": 4096,
       "exploit": {
         "url": "https://raw.githubusercontent.com/2253845067/Root-My-Galaxy-Payloads/main/artifacts/pa3q-S938BXXS9CZE1/cve-2026-43499-app.so",
-        "size": 125360,
-        "sha256": "1254c465ea9b7964e2a912152466b80100dd51ff6087aa7ad798c84874afc5f0"
+        "size": 125504,
+        "sha256": "73e9d4867083a5fa18d399472898d774579414445168e46713a757d33480d4e0"
       },
       "preload": {
         "url": "https://raw.githubusercontent.com/2253845067/Root-My-Galaxy-Payloads/main/artifacts/pa3q-S938BXXS9CZE1/cve-2026-43499",
