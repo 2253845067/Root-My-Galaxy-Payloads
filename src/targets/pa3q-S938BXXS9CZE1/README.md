@@ -24,7 +24,7 @@ Published artifacts and SHA-256 values:
 | `cve-2026-43499-app.so` | 124960 | `6f387330a21162e42ce5f7e2e5b67ce165b7b36b3e68da2712eac30033bd3fb8` |
 | `cve-2026-43499-root` | 23696 | `616e80d48634918051a63b4fe62eb97d06e88ed74f6109caec63fd7da4a4b75a` |
 | `android15-6.6_kernelsu-s938b-cze1-kdp.ko` | 4651232 | `a2856b1367b9b129895b4b04282d27a4f428c6cb174040b2fb9e756e25731cc4` |
-| `ksud-s938b-cze1-kdp` | 6321224 | `231995fa77dc5235851bdee2cb8cacf5bf09c7221084c853543d753d3ef3c99d` |
+| `ksud-s938b-cze1-kdp` | 6322216 | `66c4d99f716d10460329c881df71ddb856ce253c15de53b97d6778923fdf577c` |
 
 The exploit and root helper provide temporary root only. KernelSU artifacts are
 late-load test artifacts and are not a persistent installation by themselves.

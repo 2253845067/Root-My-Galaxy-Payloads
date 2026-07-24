@@ -1,21 +1,40 @@
 diff --git a/userspace/ksud/src/debug.rs b/userspace/ksud/src/debug.rs
-index ab7d4ae..79cc53d 100644
+index ab7d4ae..6474e4f 100644
 --- a/userspace/ksud/src/debug.rs
 +++ b/userspace/ksud/src/debug.rs
-@@ -52,9 +52,13 @@ pub fn set_manager(pkg: &str) -> Result<()> {
+@@ -2,6 +2,7 @@ use anyhow::{Context, Ok, Result, bail, ensure};
+ use std::{
+     ffi::CString,
+     fs,
++    io::Read,
+     path::{Path, PathBuf},
+     process::Command,
+ };
+@@ -52,11 +53,22 @@ pub fn set_manager(pkg: &str) -> Result<()> {
  }
  
  pub fn insmod(module: &Path, params: &[String]) -> Result<()> {
 -    let module = module
 -        .canonicalize()
 -        .with_context(|| format!("resolve module path failed: {}", module.display()))?;
-+    let module = if module.starts_with("/proc/self/fd") {
-+        module.to_path_buf()
+-    let module_data =
+-        fs::read(&module).with_context(|| format!("read module failed: {}", module.display()))?;
++    let module_data = if module == Path::new("/proc/self/fd/0") {
++        let mut module_data = Vec::new();
++        std::io::stdin()
++            .read_to_end(&mut module_data)
++            .with_context(|| format!("read module failed: {}", module.display()))?;
++        module_data
 +    } else {
-+        module
-+            .canonicalize()
-+            .with_context(|| format!("resolve module path failed: {}", module.display()))?
++        let module = if module.starts_with("/proc/self/fd") {
++            module.to_path_buf()
++        } else {
++            module
++                .canonicalize()
++                .with_context(|| format!("resolve module path failed: {}", module.display()))?
++        };
++        fs::read(&module).with_context(|| format!("read module failed: {}", module.display()))?
 +    };
-     let module_data =
-         fs::read(&module).with_context(|| format!("read module failed: {}", module.display()))?;
      let cparams = CString::new(params.join(" "))?;
+ 
+     ksuinit::load_module(&module_data, &cparams)
