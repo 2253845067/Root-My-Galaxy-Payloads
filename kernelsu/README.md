@@ -10,6 +10,8 @@ between KMIs.
 | --- | --- | --- | --- |
 | `android15-6.6_kernelsu-s25u-kdp.ko` | `SM-S938N`, `S938NKSUACZF1` | `android15-6.6` | Standalone reference module from the previously deployed S25U build |
 | `ksud-s25u-kdp` | `SM-S938N`, `S938NKSUACZF1` | `android15-6.6` | Late-load binary embedding the 6.6 module |
+| `android15-6.6_kernelsu-s938b-cze1-kdp.ko` | `SM-S938B`, `S938BXXS9CZE1` | `android15-6.6` | Exact S938B module with Samsung KDP/RKP/DEFEX adaptations |
+| `ksud-s938b-cze1-kdp` | Same exact S938B build | `android15-6.6` | Late-load binary embedding the S938B module; its `insmod` command accepts `/proc/self/fd/*` without path canonicalization |
 | `android14-6.1_kernelsu-e3q-S928USQS6DZF2-kdp.ko` | `SM-S928U/SM-S928U1`, `S928USQS6DZF2` | `android14-6.1` | Exact E3Q module with target `vermagic`, audited for manual relocation |
 | `ksud-e3q-S928USQS6DZF2-kdp` | Same exact E3Q build | `android14-6.1` | Late-load binary embedding the E3Q module |
 | `android14-6.1_kernelsu-samsung-kdp.ko` | `SM-S721N` `S721NKSSCDZF3`; `SM-S921B` `S921BXXSFDZF2` | `android14-6.1` | Standalone Samsung KDP/RKP/DEFEX module with target `vermagic` |
@@ -64,6 +66,12 @@ contains the complete source delta from the tagged v3.2.5 tree:
 - stage `ksud` at `/data/local/tmp/.ksud-stage`, rename it onto the same
   `/data` filesystem before loading the module, then finish labels/assets after
   the module is active.
+
+[`patches/KernelSU-v3.2.5-ksud-procfd-insmod.patch`](patches/KernelSU-v3.2.5-ksud-procfd-insmod.patch)
+is an additional userspace-only delta used by the S938B CZE1 test build. It
+keeps normal `ksud insmod <path>` canonicalization, but skips canonicalization
+for `/proc/self/fd/*` paths so Root My Galaxy can pass the module through stdin
+instead of staging the `.ko` under a DEFEX-restricted filesystem path.
 
 ## 6.1 generalization
 

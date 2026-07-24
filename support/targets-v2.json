@@ -31,8 +31,8 @@
       },
       "kernelsu": {
         "url": "https://raw.githubusercontent.com/2253845067/Root-My-Galaxy-Payloads/main/kernelsu/ksud-s938b-cze1-kdp",
-        "size": 6407096,
-        "sha256": "fa3edcc7d168637394877b30cb1f909d762dda788ec14051f4ae79edd6562d63",
+        "size": 6321224,
+        "sha256": "231995fa77dc5235851bdee2cb8cacf5bf09c7221084c853543d753d3ef3c99d",
         "module": {
           "url": "https://raw.githubusercontent.com/2253845067/Root-My-Galaxy-Payloads/main/kernelsu/android15-6.6_kernelsu-s938b-cze1-kdp.ko",
           "size": 4651232,

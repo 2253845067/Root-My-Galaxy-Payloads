@@ -1,0 +1,21 @@
+diff --git a/userspace/ksud/src/debug.rs b/userspace/ksud/src/debug.rs
+index ab7d4ae..79cc53d 100644
+--- a/userspace/ksud/src/debug.rs
++++ b/userspace/ksud/src/debug.rs
+@@ -52,9 +52,13 @@ pub fn set_manager(pkg: &str) -> Result<()> {
+ }
+ 
+ pub fn insmod(module: &Path, params: &[String]) -> Result<()> {
+-    let module = module
+-        .canonicalize()
+-        .with_context(|| format!("resolve module path failed: {}", module.display()))?;
++    let module = if module.starts_with("/proc/self/fd") {
++        module.to_path_buf()
++    } else {
++        module
++            .canonicalize()
++            .with_context(|| format!("resolve module path failed: {}", module.display()))?
++    };
+     let module_data =
+         fs::read(&module).with_context(|| format!("read module failed: {}", module.display()))?;
+     let cparams = CString::new(params.join(" "))?;
