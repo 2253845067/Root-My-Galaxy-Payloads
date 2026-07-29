@@ -641,24 +641,46 @@ static int slide_trigger_physical_state(void) {
   return ok;
 }
 
+#if defined(SLIDE_PHYSICAL_SLOT_DELAYS_USEC)
+static const int slide_physical_slot_delays[] = {
+  SLIDE_PHYSICAL_SLOT_DELAYS_USEC
+};
+#endif
+
 static int slide_trigger_physical_slot(size_t slot) {
   if (!select_slide_payload_index(slot)) {
     return 0;
   }
-  char delay_arg[16];
-  int delay = (int)slide_enter_delay_usec();
-  slide_pselect_nfds = PSELECT_ROUTE_NFDS;
-  slide_syscall_pad = 0;
-  snprintf(delay_arg, sizeof(delay_arg), "%d", delay);
-  SYSCHK(setenv("SLIDE_ENTER_DELAY_USEC", delay_arg, 1));
-  if (slide_trigger_physical_state()) {
-    pr_info("p0 physical slot=%zu write attempt=1/1 delay=%d nfds=%d "
-            "pad=%d\n",
-            slot, delay, slide_pselect_nfds, slide_syscall_pad);
-    return 1;
+
+  int base_delay = (int)slide_enter_delay_usec();
+#if defined(SLIDE_PHYSICAL_SLOT_DELAYS_USEC)
+  int attempts = (int)(sizeof(slide_physical_slot_delays) /
+                       sizeof(slide_physical_slot_delays[0]));
+#else
+  int attempts = 1;
+#endif
+
+  for (int attempt = 1; attempt <= attempts; attempt++) {
+    int delay = base_delay;
+#if defined(SLIDE_PHYSICAL_SLOT_DELAYS_USEC)
+    delay = slide_physical_slot_delays[(size_t)(attempt - 1)];
+#endif
+    char delay_arg[16];
+    slide_pselect_nfds = PSELECT_ROUTE_NFDS;
+    slide_syscall_pad = 0;
+    snprintf(delay_arg, sizeof(delay_arg), "%d", delay);
+    SYSCHK(setenv("SLIDE_ENTER_DELAY_USEC", delay_arg, 1));
+    if (slide_trigger_physical_state()) {
+      pr_info("p0 physical slot=%zu write attempt=%d/%d delay=%d nfds=%d "
+              "pad=%d\n",
+              slot, attempt, attempts, delay, slide_pselect_nfds,
+              slide_syscall_pad);
+      return 1;
+    }
   }
-  pr_error("p0 physical slot=%zu write window failed after one attempt\n",
-           slot);
+
+  pr_error("p0 physical slot=%zu write window failed after %d attempt(s)\n",
+           slot, attempts);
   return 0;
 }
 
@@ -683,7 +705,22 @@ int app_trigger_fops_slide_route(void) {
   if (!select_slide_payload_index(0)) {
     return 0;
   }
-  int delay = delays[delay_index % (sizeof(delays) / sizeof(delays[0]))];
+  int delay = 0;
+#if defined(APP_FOPS_ROUTE_USE_PSELECT_DELAY) && APP_FOPS_ROUTE_USE_PSELECT_DELAY
+  const char *forced = getenv("PSELECT_DELAY_USEC");
+  if (forced && *forced) {
+    char *end = NULL;
+    errno = 0;
+    long value = strtol(forced, &end, 0);
+    if (!errno && end != forced && !*end && value >= 0 &&
+        value <= 1000000) {
+      delay = (int)value;
+    }
+  }
+#endif
+  if (!delay) {
+    delay = delays[delay_index % (sizeof(delays) / sizeof(delays[0]))];
+  }
   delay_index++;
   char delay_arg[16];
   snprintf(delay_arg, sizeof(delay_arg), "%d", delay);

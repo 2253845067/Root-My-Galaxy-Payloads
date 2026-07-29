@@ -10,6 +10,8 @@ between KMIs.
 | --- | --- | --- | --- |
 | `android15-6.6_kernelsu-s25u-kdp.ko` | `SM-S938N`, `S938NKSUACZF1` | `android15-6.6` | Standalone reference module from the previously deployed S25U build |
 | `ksud-s25u-kdp` | `SM-S938N`, `S938NKSUACZF1` | `android15-6.6` | Late-load binary embedding the 6.6 module |
+| `android15-6.6_kernelsu-A566EXXSCCZG6-kdp.ko` | `SM-A566E`, `A566EXXSCCZG6` | `android15-6.6` | Exact A56 module with target `vermagic`, audited for manual relocation; live text patching disabled for Exynos EL2 |
+| `ksud-A566EXXSCCZG6-kdp` | Same exact A56 build | `android15-6.6` | Device-tested late-load binary embedding the A56 6.6 no-patch-text module |
 | `android14-6.1_kernelsu-e3q-S928USQS6DZF2-kdp.ko` | `SM-S928U/SM-S928U1`, `S928USQS6DZF2` | `android14-6.1` | Exact E3Q module with target `vermagic`, audited for manual relocation |
 | `ksud-e3q-S928USQS6DZF2-kdp` | Same exact E3Q build | `android14-6.1` | Late-load binary embedding the E3Q module |
 | `android14-6.1_kernelsu-samsung-kdp.ko` | `SM-S721N` `S721NKSSCDZF3`; `SM-S921B` `S921BXXSFDZF2` | `android14-6.1` | Standalone Samsung KDP/RKP/DEFEX module with target `vermagic` |
@@ -23,7 +25,12 @@ the corresponding `ksud-*` file because `ksud late-load` loads its embedded
 
 The 6.1 files are build-verified but device-untested. The E3Q pair is tied to
 the full S928U DZF2 release string and must not be replaced with the generic
-6.1 pair. The 5.10 files are also build-verified and device-untested.
+6.1 pair. The A56 CCZG6 pair is exact-release, static-audited, and
+device-tested. Its first hardware late-load builds panicked in Samsung/Exynos
+EL2 while KernelSU tried live text patching; the current A56 build disables
+that path, uses the Samsung fallback hooks, loads successfully, and reports
+KernelSU version code `32525` for manager compatibility. The 5.10 files are
+also build-verified and device-untested.
 
 ## Why the stock module crashes on Samsung
 

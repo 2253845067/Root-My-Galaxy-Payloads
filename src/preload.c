@@ -58,6 +58,14 @@ static int env_int(const char *name, int fallback, int min, int max) {
 }
 
 static int attempt_delay_usec(int base_delay, int attempt) {
+#if defined(APP_PAYLOAD_ATTEMPT_DELAYS_USEC)
+  static const int delays[] = {
+    APP_PAYLOAD_ATTEMPT_DELAYS_USEC
+  };
+  (void)base_delay;
+  int count = (int)(sizeof(delays) / sizeof(delays[0]));
+  int delay = delays[(attempt - 1) % count];
+#else
 #if defined(APP_PAYLOAD) && APP_PAYLOAD
   static const int offsets[] = {
     5000, 0, 10000, 30000, -5000, 20000, 15000, 25000,
@@ -69,6 +77,7 @@ static int attempt_delay_usec(int base_delay, int attempt) {
 #endif
   int count = (int)(sizeof(offsets) / sizeof(offsets[0]));
   int delay = base_delay + offsets[(attempt - 1) % count];
+#endif
   return delay < 0 ? 0 : delay;
 }
 

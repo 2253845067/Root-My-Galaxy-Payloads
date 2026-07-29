@@ -18,6 +18,7 @@ It intentionally does not contain Android application source code.
 | `pa3q-S938NKSUACZF1` | Galaxy S25 Ultra `SM-S938N` | `BP4A.251205.006.S938NKSUACZF1` | `android15-6.6` | Device-tested |
 | `pa3q-S9380ZHUBCZF1` | Galaxy S25 Ultra `SM-S9380` | `BP4A.251205.006.S9380ZHUBCZF1` | `android15-6.6` | Device-tested |
 | `e3q-S928USQS6DZF2` | Galaxy S24 Ultra `SM-S928U/SM-S928U1` (Snapdragon 8 Gen 3) | `BP4A.251205.006.S928USQS6DZF2` | `6.1.145-android14-11-33419968-abS928USQS6DZF2` | Hardware debugging in progress |
+| `essi-A566EXXSCCZG6` | Galaxy A56 5G `SM-A566E` | `BP4A.251205.006.A566EXXSCCZG6` | `6.6.102-android15-8-abA566EXXSCCZG6-4k` | Device-tested |
 
 Profiles are exact-firmware profiles. A matching model with a different build
 is not equivalent and must be ported separately.
@@ -46,6 +47,7 @@ make TARGET=e3q-S928USQS6DZF2 ANDROID_NDK_HOME=/path/to/android-ndk
 make TARGET=essi-S721NKSSCDZF3 ANDROID_NDK_HOME=/path/to/android-ndk
 make TARGET=e1s-S921BXXSFDZF2 ANDROID_NDK_HOME=/path/to/android-ndk
 make TARGET=a15-A155NKSS6BYH1 ANDROID_NDK_HOME=/path/to/android-ndk
+make TARGET=essi-A566EXXSCCZG6 ANDROID_NDK_HOME=/path/to/android-ndk
 ```
 
 Outputs:
@@ -72,5 +74,7 @@ S928U/S928U1 DZF2 analysis is in
 is an Exynos 2400 target and is not a Qualcomm/Snapdragon reference for E3Q.
 The 5.10 A15 analysis is in
 [`docs/SM-A155N-A155NKSS6BYH1.md`](docs/SM-A155N-A155NKSS6BYH1.md).
+The SM-A566E CCZG6 analysis and validation record is in
+[`docs/SM-A566E-A566EXXSCCZG6.md`](docs/SM-A566E-A566EXXSCCZG6.md).
 
 Use only on devices you own or are explicitly authorized to test.
