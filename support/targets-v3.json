@@ -3,7 +3,7 @@
   "payloads": [
     {
       "payloadId": "galaxy-s25-series-2026-06-07",
-      "displayName": "Galaxy S25 series · June/July 2026",
+      "displayName": "Galaxy S25 series | June/July 2026",
       "compatibility": {
         "manufacturer": "samsung",
         "supportedDevices": [
@@ -66,7 +66,7 @@
     },
     {
       "payloadId": "e3q-S928USQS6DZF2",
-      "displayName": "Galaxy S24 Ultra · S928USQS6DZF2",
+      "displayName": "Galaxy S24 Ultra | S928USQS6DZF2",
       "compatibility": {
         "manufacturer": "samsung",
         "supportedDevices": [
@@ -98,7 +98,7 @@
     },
     {
       "payloadId": "essi-A566EXXSCCZG6",
-      "displayName": "Galaxy A56 5G · A566EXXSCCZG6",
+      "displayName": "Galaxy A56 5G | A566EXXSCCZG6",
       "compatibility": {
         "manufacturer": "samsung",
         "supportedDevices": [
