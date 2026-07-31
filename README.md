@@ -13,15 +13,14 @@ It intentionally does not contain Android application source code.
 
 ## Supported payloads
 
-| Payload | Compatible devices/builds | Kernel/KMI | Status |
+| Payload | Compatible models | Kernel version | Status |
 | --- | --- | --- | --- |
-| `galaxy-s25-series-2026-06-07` | Galaxy S25, S25+, S25 Edge, and S25 Ultra regional models on June/July 2026 security patches | `android15-6.6` / 4K | Device-tested |
-| `e3q-S928USQS6DZF2` | Galaxy S24 Ultra `SM-S928U`, exact `S928USQS6DZF2` build | `6.1.145-android14-11-33419968-abS928USQS6DZF2` | Hardware debugging in progress |
-| `essi-A566EXXSCCZG6` | Galaxy A56 5G `SM-A566E`, exact `A566EXXSCCZG6` build | `6.6.102-android15-8-abA566EXXSCCZG6-4k` | Device-tested |
+| `galaxy-s25-series-2026-06-07` | Galaxy S25, S25+, S25 Edge, and S25 Ultra regional models | `6.6.98` | Device-tested |
+| `e3q-S928USQS6DZF2` | Galaxy S24 Ultra `SM-S928U` | `6.1.145` | Hardware debugging in progress |
+| `essi-A566EXXSCCZG6` | Galaxy A56 5G `SM-A566E` | `6.6.102` | Device-tested |
 
 Schema version 3 keeps each exploit and KernelSU artifact once. Its flat
-`models` array lists compatible regional models, while `builds` or
-`securityPatchMonths` limits the verified firmware range. See
+`models` and `kernelVersions` arrays define runtime compatibility. See
 [`support/README.md`](support/README.md) for the matching rules.
 
 The port is based on the exploit source published at

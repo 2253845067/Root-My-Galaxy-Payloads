@@ -432,13 +432,12 @@ depends on symbols trimmed from the target export table.
 ## 8. Publish the support feed
 
 Add the artifact once to `support/targets-v3.json`, then add every verified
-regional `Build.MODEL` value to `models`. Use `builds` for an exact-build port.
-Use `securityPatchMonths` only after the same artifact has been validated on
-every listed model across that complete month range. Kernel analysis and exact
-`uname` evidence belong in the target source and porting notes, not the runtime
-support manifest. Update artifact sizes, validate the final JSON, and confirm
-that Root My Galaxy can parse it before publishing. The minimal fields are
-documented in [`../support/README.md`](../support/README.md).
+regional `Build.MODEL` value to `models` and the leading three-part `uname -r`
+value to `kernelVersions`. Kernel suffixes and firmware build identifiers stay
+in the target source and porting notes rather than the runtime support
+manifest. Update artifact sizes, validate the final JSON, and confirm that Root
+My Galaxy can parse it before publishing. The minimal fields are documented in
+[`../support/README.md`](../support/README.md).
 
 ## 9. Cleanup policy
 
