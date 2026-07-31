@@ -3,7 +3,7 @@
   "payloads": [
     {
       "payloadId": "galaxy-s25-series-2026-06-07",
-      "displayName": "Galaxy S25 series | June/July 2026",
+      "displayName": "Galaxy S25 series | Kernel 6.6.98",
       "models": [
         "SM-S9310",
         "SM-S931B",
@@ -38,7 +38,7 @@
         "SC-52F",
         "SCG32"
       ],
-      "securityPatchMonths": ["2026-06", "2026-07"],
+      "kernelVersions": ["6.6.98"],
       "exploit": {
         "url": "https://raw.githubusercontent.com/BuSung-dev/Root-My-Galaxy-Payloads/main/artifacts/pa3q-S938NKSUACZF1/cve-2026-43499-app.so",
         "size": 104128
@@ -50,9 +50,9 @@
     },
     {
       "payloadId": "e3q-S928USQS6DZF2",
-      "displayName": "Galaxy S24 Ultra | S928USQS6DZF2",
+      "displayName": "Galaxy S24 Ultra | Kernel 6.1.145",
       "models": ["SM-S928U"],
-      "builds": ["BP4A.251205.006.S928USQS6DZF2"],
+      "kernelVersions": ["6.1.145"],
       "exploit": {
         "url": "https://raw.githubusercontent.com/BuSung-dev/Root-My-Galaxy-Payloads/main/artifacts/e3q-S928USQS6DZF2/cve-2026-43499-app.so",
         "size": 104128
@@ -64,9 +64,9 @@
     },
     {
       "payloadId": "essi-A566EXXSCCZG6",
-      "displayName": "Galaxy A56 5G | A566EXXSCCZG6",
+      "displayName": "Galaxy A56 5G | Kernel 6.6.102",
       "models": ["SM-A566E"],
-      "builds": ["BP4A.251205.006.A566EXXSCCZG6"],
+      "kernelVersions": ["6.6.102"],
       "exploit": {
         "url": "https://raw.githubusercontent.com/BuSung-dev/Root-My-Galaxy-Payloads/main/artifacts/essi-A566EXXSCCZG6/cve-2026-43499-app.so",
         "size": 104128
