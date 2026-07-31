@@ -1,22 +1,20 @@
 # Support feed schema
 
-`targets-v3.json` separates downloadable payloads from compatible devices. A
-single payload entry owns one exploit and one KernelSU artifact, while
-`compatibility.supportedDevices` lists every regional model that can use those
-same binaries.
+`targets-v3.json` keeps one entry for each shared exploit and KernelSU payload.
+`models` lists every model that can use those exact binaries.
 
-Automatic selection requires all of these checks to pass:
+Each entry contains only:
 
-- manufacturer and an exact `Build.MODEL` entry in `supportedDevices`;
-- kernel release rule and, when present, an exact kernel build version;
-- exact build display and/or security-patch month when either list is present;
-- SDK, primary ABI, and page size.
+- `payloadId` and `displayName`;
+- one or more exact `Build.MODEL` values in `models`;
+- either exact Android build displays in `builds` or verified `YYYY-MM` values
+  in `securityPatchMonths`;
+- `url` and `size` for the exploit and KernelSU artifacts.
 
-`kernelRelease.exact` takes precedence when it is non-empty. Otherwise
-`prefix`, `contains`, and `suffix` must all be non-empty and all three bounds
-must match. An empty `kernelBuildVersions`, `buildDisplays`, or
-`securityPatchMonths` array means that field does not further restrict the
-payload.
+Automatic selection requires a model match and all declared build constraints
+to match. Omit `builds` when the payload is validated for every build in the
+listed security-patch months. Omit `securityPatchMonths` for an exact-build
+payload. At least one of these two constraints is required.
 
 `targets-v2.json` remains unchanged for released 0.2.3 clients. New clients
 read only schema version 3.
