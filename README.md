@@ -19,12 +19,10 @@ It intentionally does not contain Android application source code.
 | `e3q-S928USQS6DZF2` | Galaxy S24 Ultra `SM-S928U`, exact `S928USQS6DZF2` build | `6.1.145-android14-11-33419968-abS928USQS6DZF2` | Hardware debugging in progress |
 | `essi-A566EXXSCCZG6` | Galaxy A56 5G `SM-A566E`, exact `A566EXXSCCZG6` build | `6.6.102-android15-8-abA566EXXSCCZG6-4k` | Device-tested |
 
-Schema version 3 keeps each exploit and KernelSU artifact once and places its
-regional model list under `compatibility.supportedDevices`. Exact-build
-payloads still require their literal kernel release, kernel build version, and
-display build. The shared S25 payload instead requires a listed S25 model, the
-6.6/android15-8/4K kernel family, SDK 36, and a June or July 2026 security
-patch. See [`support/README.md`](support/README.md) for the matching rules.
+Schema version 3 keeps each exploit and KernelSU artifact once. Its flat
+`models` array lists compatible regional models, while `builds` or
+`securityPatchMonths` limits the verified firmware range. See
+[`support/README.md`](support/README.md) for the matching rules.
 
 The port is based on the exploit source published at
 <https://github.com/NebuSec/CyberMeowfia/tree/main/IonStack/CVE-2026-43499/exploit>.
