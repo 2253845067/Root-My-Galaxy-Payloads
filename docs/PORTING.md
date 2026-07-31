@@ -431,11 +431,15 @@ depends on symbols trimmed from the target export table.
 
 ## 8. Publish the support feed
 
-Add an exact entry to `support/targets-v2.json`, including the target's literal
-`uname -r` value as `kernelRelease` and complete `/proc/version` string as
-`kernelVersion`. Do not invent a suffix when a vendor kernel exposes a short
-release string. Update artifact sizes, validate the final JSON, and confirm that
-Root My Galaxy can parse the profile before publishing it.
+Add the artifact once to `support/targets-v3.json`, then list every verified
+regional model that uses the same binary under
+`compatibility.supportedDevices`. Keep exact firmware constraints for a normal
+port: literal `uname -r`, complete `uname -v`, display build, SDK, ABI, and page
+size. Use a bounded kernel-family rule or security-patch-month list only after
+the same artifact has been validated across that complete range. Update
+artifact sizes, validate the final JSON, and confirm that Root My Galaxy can
+parse the payload before publishing it. The schema fields and empty-list
+semantics are documented in [`../support/README.md`](../support/README.md).
 
 ## 9. Cleanup policy
 
