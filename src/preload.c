@@ -226,9 +226,8 @@ __attribute__((constructor)) static void load(void) {
       SYSCHK(setenv("P0_PROBE_PAGE_STRUCT", probe_page_arg, 1));
       pr_success("supervisor retained p0_offset=%s gate=%s probe=%s\n",
                  offset_arg, gate_page_arg, probe_page_arg);
-    } else if (!getenv("SLIDE_P0_OFFSET") &&
-               atomic_load(&app_p0_state->dirty)) {
-      pr_error("p0 oracle dirtied before slide discovery; refusing unsafe retry\n");
+    } else if (atomic_load(&app_p0_state->dirty)) {
+      pr_error("p0 oracle state dirty or uncertain; refusing unsafe retry\n");
       break;
     }
 #endif
