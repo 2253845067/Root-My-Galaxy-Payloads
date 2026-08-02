@@ -14,6 +14,8 @@ between KMIs.
 | `ksud-A566EXXSCCZG6-kdp` | Same exact A56 build | `android15-6.6` | Device-tested late-load binary embedding the A56 6.6 no-patch-text module |
 | `android14-6.1_kernelsu-e3q-S928USQS6DZF2-kdp.ko` | `SM-S928U/SM-S928U1`, `S928USQS6DZF2` | `android14-6.1` | Exact E3Q module with target `vermagic`, audited for manual relocation |
 | `ksud-e3q-S928USQS6DZF2-kdp` | Same exact E3Q build | `android14-6.1` | Late-load binary embedding the E3Q module |
+| `android14-6.1_kernelsu-e2s-S926BXXUEDZDR-kdp.ko` | `SM-S926B`, `S926BXXUEDZDR` | `android14-6.1` | Exact E2S no-patch-text module with target `vermagic`, audited for manual relocation |
+| `ksud-e2s-S926BXXUEDZDR-kdp` | Same exact E2S build | `android14-6.1` | Device-tested late-load binary embedding the E2S no-patch-text module |
 | `android14-6.1_kernelsu-samsung-kdp.ko` | `SM-S721N` `S721NKSSCDZF3`; `SM-S921B` `S921BXXSFDZF2` | `android14-6.1` | Standalone Samsung KDP/RKP/DEFEX module with target `vermagic` |
 | `ksud-samsung-android14-6.1-kdp` | Same verified 6.1 targets | `android14-6.1` | Late-load binary embedding the 6.1 module |
 | `android12-5.10_kernelsu-samsung-kdp.ko` | `SM-A155N` `A155NKSS6BYH1` | `android12-5.10` | Standalone Samsung KDP/RKP/DEFEX module built against the exact A15 kernel |
@@ -23,14 +25,16 @@ The standalone `.ko` files are retained for auditing. Root My Galaxy downloads
 the corresponding `ksud-*` file because `ksud late-load` loads its embedded
 `<kmi>_kernelsu.ko` asset.
 
-The 6.1 files are build-verified but device-untested. The E3Q pair is tied to
-the full S928U DZF2 release string and must not be replaced with the generic
-6.1 pair. The A56 CCZG6 pair is exact-release, static-audited, and
-device-tested. Its first hardware late-load builds panicked in Samsung/Exynos
-EL2 while KernelSU tried live text patching; the current A56 build disables
-that path, uses the Samsung fallback hooks, loads successfully, and reports
-KernelSU version code `32525` for manager compatibility. The 5.10 files are
-also build-verified and device-untested.
+The generic 6.1 files and E3Q pair are build-verified but device-untested. The
+E3Q pair is tied to the full S928U DZF2 release string and must not be replaced
+with the generic 6.1 pair. The E2S pair is tied to the S926B DZDR release,
+static-audited, and device-tested: late-load reports version code `32525`, and
+an authorized root client runs in `u:r:ksu:s0`. The A56 CCZG6 pair is also
+exact-release, static-audited, and device-tested. Its first hardware late-load
+builds panicked in Samsung/Exynos EL2 while KernelSU tried live text patching;
+the current A56 build disables that path, uses the Samsung fallback hooks,
+loads successfully, and reports KernelSU version code `32525` for manager
+compatibility. The 5.10 files are build-verified and device-untested.
 
 ## Why the stock module crashes on Samsung
 
@@ -186,6 +190,22 @@ This must report zero symbols missing from the target symbol table, zero
 module version entries, and zero CRC mismatches. The E3Q audit has 209
 undefined imports, all present in the target ELF; 50 are intentionally
 resolved through kallsyms rather than conventional exports.
+
+The E2S module uses the same upstream Samsung no-patch-text source as the A56
+build, but is rebuilt for the exact 6.1 target release. Its manual-relocation
+audit reports 202 undefined imports, zero missing target symbols, an empty
+`__versions` section, zero target CRC mismatches, and no `stop_machine`
+imports. The published artifacts are:
+
+```text
+android14-6.1_kernelsu-e2s-S926BXXUEDZDR-kdp.ko
+size: 398368
+SHA-256: a6c521a2f660f595f4ea359c243e27b85142cbcd832c84340dac0994f8d12135
+
+ksud-e2s-S926BXXUEDZDR-kdp
+size: 4780056
+SHA-256: dc3eb02640492a8d6f78f8515c6ae5c75ddbfa593f53cd0f3efdfc82a29c4219
+```
 
 Copy the stripped module to:
 

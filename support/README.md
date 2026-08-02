@@ -11,6 +11,12 @@ Each entry contains only:
 - one or more versions in `kernelVersions`;
 - `url` and `size` for the exploit and KernelSU artifacts.
 
+An entry may additionally set `requiresFreshP0Session` to `true` when slide
+discovery and exploitation must run in the same payload process. The app then
+disables its per-boot P0 cache for that profile and gives the single combined
+attempt the target-specific long timeout. The field defaults to `false`, so
+existing profiles retain the cached multi-attempt behavior.
+
 The app extracts the leading numeric version from `uname -r`. Kernel suffixes,
 Android build displays, fingerprints, and security-patch dates do not
 participate in matching.

