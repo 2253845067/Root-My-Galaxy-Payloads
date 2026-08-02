@@ -22,12 +22,14 @@ Hardware status:
 
 - app-domain payload/root daemon: device-tested on the connected SM-S926B;
 - successful root evidence: `uid=2000 -> 0`, Kernel context `u:r:kernel:s0`;
-- current 104128-byte upstream-integrated release artifact: device-tested on
-  the exact firmware with the fast profile enabled by default;
+- current 104128-byte upstream-integrated release artifact: passed three
+  independent clean-boot runs on the exact firmware with the fast profile and
+  eight independent P0/FOPS physical gates enabled by default;
 - KernelSU module: exact-vermagic no-patch-text build and target-symbol audit
   passed;
 - KernelSU late-load: device-tested; Manager accepts KernelSU version code
   `32525`, the target-specific `ksud` auto-detects `android14-6.1` without a
-  compatibility bridge, and the privileged client runs in `u:r:ksu:s0`;
+  compatibility bridge, the module is live without changing boot ID, and the
+  privileged loader runs in `u:r:ksu:s0`;
 - detailed derivation, hashes and validation notes are in
   `docs/SM-S926B-S926BXXUEDZDR.md`.

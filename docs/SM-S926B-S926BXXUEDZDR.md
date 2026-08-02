@@ -206,14 +206,17 @@ The fixed-size release artifact is:
 ```text
 artifacts/e2s-S926BXXUEDZDR/cve-2026-43499-app.so
 size: 104128
-SHA-256: 00292325A18F9909CEE34ECF5EE26240098BFD73C13D5BC1BD280A107F73B145
+SHA-256: B1FE6DCC2E4D5CBFC13679F2086835C0A2AB2BE5624F122B23B0C30954670552
 ```
 
 The E2S target enables its validated fast KernelSnitch profile by default.
 It keeps five collisions, three confirmations and every P0 fingerprint,
 restore, alias, CFI, physical read/write and root-result gate. Only repeated
 statistical sampling is reduced to 2,048 appended futexes, 32 measurements and
-four averaged samples for both P0 and fops searches.
+four averaged samples for both P0 and fops searches. Up to 16 search batches
+may locate candidates, while no more than eight independently rebuilt P0 or
+FOPS pages can reach a physical gate. Empty searches do not consume a physical
+gate, and every accepted page remains single-shot.
 
 ## KernelSU compatibility
 
@@ -277,20 +280,33 @@ the exact no-patch-text module, reported KernelSU version code `32525`, passed
 the Manager control probe and produced an independent client shell with
 `uid=0(root)` and `u:r:ksu:s0`.
 
-The final contribution candidate was then rebuilt on upstream commit
-`49fc33f`, with the validated fast profile enabled by default. On the 8 GB
-test unit's clean boot
-`a9b27708-5476-47f5-8493-4b7b74866131`, the exact release artifact with
-SHA-256 `00292325a18f9909cee34ecf5ee26240098bfd73c13d5bc1bd280a107f73b145`
-passed all gates and reached the independent `uid=0`, `u:r:kernel:s0` check in
-approximately 71 seconds. P0 discovery took 35,081 ms and the accepted
-fingerprint produced runtime slide `0x1a0000`.
+The final contribution candidate was rebuilt on upstream commit `49fc33f` with
+eight P0 gates, eight FOPS gates, and 16 search batches for each stage. Two NDK
+r29 builds were byte-identical, and the exact-profile verifier passed 137/137
+checks. The resulting fixed-size artifact has SHA-256
+`b1fe6dcc2e4d5cbfc13679f2086835c0a2ab2be5624f122b23b0c30954670552`.
 
-That same run used the 21,464-byte helper extracted from the built debug APK
+That exact artifact passed three independent clean-boot runs:
+
+| Run | Boot ID | P0 result | FOPS result | Runtime slide | Exploit time |
+| ---: | --- | --- | --- | ---: | ---: |
+| 1 | `3c180d4f-8e0f-423f-82a2-b45b73eb7296` | `fresh=2/8`, fingerprint 8/8 | `fresh=1/8` | `0x0d0000` | ~228 s |
+| 2 | `c98d26a4-b6b1-4213-ba1d-ea08949bfcd1` | `fresh=1/8`, fingerprint 8/8 | `fresh=2/8` | `0x0a0000` | ~118 s |
+| 3 | `1c9ac941-59a8-4a60-a41f-771a293891d2` | `fresh=2/8`, fingerprint 8/8 | first gate after three empty batches | `0x1e0000` | ~298 s |
+
+Every run completed the exact production pointer write/readback, CFI
+read/write, physical R/W, `read64`, and UMH root stages. Each final payload
+summary reported `done=1 root=1 kaslr=1 read_ok=1 write_ok=1 rw64=1/1
+uid=2000->0`, and an independent client returned `uid=0(root)` in
+`u:r:kernel:s0`.
+
+All three runs used the 21,464-byte helper extracted from the built debug APK
 (SHA-256 `c37cef0dd05b97b4845e1dde3927b15b9615be8fda551c23dc8b2cce0c62fc07`).
 The published E2S `ksud` reported `current-kmi=android14-6.1`, was invoked
 without a forced `--kmi` argument, and loaded its exact embedded module without
-a reboot or compatibility bridge. The post-load checks found `kernelsu` in
-`/proc/modules`, KernelSU version `32525`, `late_load: true`, and an independent
-`uid=0(root)` shell in `u:r:ksu:s0`. This verifies the exact payload, APK helper
-and auto-KMI late-load path intended for the paired submissions.
+a reboot or compatibility bridge. The final runner verified the unchanged boot
+ID, the live `kernelsu` entry in `/proc/modules`, successful module load, and
+the loader transition to `u:r:ksu:s0`. The production module deliberately uses
+`allow_shell=false`; a new UID-2000 ADB shell remains unprivileged until its UID
+is authorized in Manager. Manager reported `Working <LKM> [Jailbreak mode]`,
+version `32525-2`, and a reversible application-profile update was verified.
