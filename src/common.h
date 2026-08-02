@@ -297,6 +297,9 @@ extern uint32_t pipe_probe_len;
 extern uint32_t pipe_probe_flags;
 extern uint64_t pipe_scan_first_page;
 extern uint64_t pipe_scan_first_ops;
+#if defined(APP_PHYS_VIRTUAL_BASE_ORACLE) && APP_PHYS_VIRTUAL_BASE_ORACLE
+extern int p0_virtual_base_probe;
+#endif
 extern uint64_t pipe_scan_q0;
 extern uint64_t pipe_scan_q1;
 extern uint64_t pipe_scan_q2;
@@ -443,6 +446,9 @@ int expand_p0_pipe_oracle(void);
 int verify_p0_pipe_oracle_gate(void);
 int verify_p0_pipe_data_page(uintptr_t target, uint64_t expected);
 uintptr_t scan_p0_pipe_oracle(void);
+#if defined(APP_PHYS_VIRTUAL_BASE_ORACLE) && APP_PHYS_VIRTUAL_BASE_ORACLE
+uint64_t scan_p0_virtual_base_pointer(void);
+#endif
 int restore_p0_oracle_pages(int fd);
 int run_p0_pipe_oracle_diagnostic(int fd);
 #endif

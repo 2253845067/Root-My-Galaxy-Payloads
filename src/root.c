@@ -304,7 +304,11 @@ int install_android_root(int fd) {
   pr_info("root direct start uid=%u fd=%d\n", root_uid_before, fd);
   int installed = install_workqueue_umh_root(fd);
 #if defined(APP_PAYLOAD) && APP_PAYLOAD
+#if defined(APP_PHYS_VIRTUAL_BASE_ORACLE) && APP_PHYS_VIRTUAL_BASE_ORACLE
+  if (installed && (p0_gate_page_struct || p0_probe_page_struct)) {
+#else
   if (installed) {
+#endif
     int holder_ready = 0;
     for (int attempt = 0; attempt < 200; attempt++) {
       if (root_hold_socket_ready()) {
@@ -319,6 +323,10 @@ int install_android_root(int fd) {
       root_uid_after = root_uid_before;
       return 0;
     }
+#if defined(APP_PHYS_VIRTUAL_BASE_ORACLE) && APP_PHYS_VIRTUAL_BASE_ORACLE
+  } else if (installed) {
+    pr_info("root p0 reference holder not required for cached virtual base\n");
+#endif
   }
 #endif
   return installed;
