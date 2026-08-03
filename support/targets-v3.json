@@ -122,7 +122,7 @@
     {
       "payloadId": "dm3q-S9180ZHS8FZF5",
       "displayName": "Galaxy S23 Ultra | Kernel 5.15.189",
-      "models": ["SM-S9180", "SM-S918B", "SM-S918N", "SM-S918Q", "SM-S918U", "SM-S918W"],
+      "models": ["SM-S9180", "SM-S918B", "SM-S918N", "SM-S918Q", "SM-S918U", "SM-S918W", "SM-S918U1"],
       "kernelVersions": ["5.15.189"],
       "exploit": {
         "url": "https://raw.githubusercontent.com/BuSung-dev/Root-My-Galaxy-Payloads/main/artifacts/dm3q-S9180ZHS8FZF5/cve-2026-43499-app.so",
