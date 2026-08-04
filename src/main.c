@@ -549,9 +549,13 @@ int run_exploit(int argc, char **argv) {
               fake_fops, postwrite_result, probe_restored, triggered);
 #if defined(APP_FOPS_DURABLE_POSTWRITE_LOG) && \
     APP_FOPS_DURABLE_POSTWRITE_LOG
-      /* Preserve the authoritative result even if RDB dies before dlopen returns. */
-      SYSCHK(fflush(NULL));
-      SYSCHK(fsync(STDOUT_FILENO));
+      /* Preserve the authoritative result even if RDB dies before
+       * dlopen returns.  stdout may be a pipe (adb shell), where fsync
+       * returns EINVAL: that is not a failure worth aborting for. */
+      fflush(NULL);
+      if (fsync(STDOUT_FILENO) != 0 && errno != EINVAL && errno != EBADF) {
+        pr_warning("fsync stdout errno=%d\n", errno);
+      }
 #endif
       fops_data_alias_deferred = 0;
     }
