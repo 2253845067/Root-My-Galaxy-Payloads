@@ -20,6 +20,8 @@ between KMIs.
 | `ksud-e2s-S926BXXUEDZDR-kdp` | Same exact E2S build | `android14-6.1` | Device-tested late-load binary embedding the E2S no-patch-text module |
 | `android14-6.1_kernelsu-e1s-S921NKSSFDZF3-kdp.ko` | `SM-S921N`, `S921NKSSFDZF3` | `android14-6.1` | Exact S921N no-patch-text module with target `vermagic`, audited for manual relocation |
 | `ksud-e1s-S921NKSSFDZF3-kdp` | Same exact S921N build | `android14-6.1` | Device-tested late-load binary embedding the S921N no-patch-text module |
+| `android14-6.1_kernelsu-e1s-S921BXXSFDZE1-kdp.ko` | `SM-S921B`, `S921BXXSFDZE1` | `android14-6.1` | Exact E1S no-patch-text module with target `vermagic`, audited for manual relocation |
+| `ksud-e1s-S921BXXSFDZE1-kdp` | Same exact E1S build | `android14-6.1` | Device-tested late-load binary embedding the E1S no-patch-text module |
 | `android14-6.1_kernelsu-samsung-kdp.ko` | `SM-S721N` `S721NKSSCDZF3`; `SM-S921B` `S921BXXSFDZF2` | `android14-6.1` | Standalone Samsung KDP/RKP/DEFEX module with target `vermagic` |
 | `ksud-samsung-android14-6.1-kdp` | Same verified 6.1 targets | `android14-6.1` | Late-load binary embedding the 6.1 module |
 | `android12-5.10_kernelsu-samsung-kdp.ko` | `SM-A155N` `A155NKSS6BYH1` | `android12-5.10` | Standalone Samsung KDP/RKP/DEFEX module built against the exact A15 kernel |
@@ -33,7 +35,13 @@ The generic 6.1 files and E3Q pair are build-verified but device-untested. The
 E3Q pair is tied to the full S928U DZF2 release string and must not be replaced
 with the generic 6.1 pair. The E2S pair is tied to the S926B DZDR release,
 static-audited, and device-tested: late-load reports version code `32525`, and
-the loader runs in `u:r:ksu:s0`. The A56 CCZG6 pair is exact-release,
+the loader runs in `u:r:ksu:s0`. The E1S pair is tied to the S921B DZE1 release,
+static-audited against the recovered DZE1 `vmlinux` (202 undefined symbols, zero
+missing, zero CRC mismatches, no `stop_machine`), and device-tested: the
+no-patch-text module late-loads cleanly and reports KernelSU active. On the same
+Exynos 2400 the generic 6.1 module panics in Samsung/Exynos EL2 while attempting
+live text patching, so DZE1 uses the no-patch-text build. The A56 CCZG6 pair is
+exact-release,
 static-audited, and
 device-tested. Its first hardware late-load builds panicked in Samsung/Exynos
 EL2 while KernelSU tried live text patching; the current A56 build disables
