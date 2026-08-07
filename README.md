@@ -18,6 +18,7 @@ It intentionally does not contain Android application source code.
 | `pa3q-S938BXXS9CZE1` | Galaxy S25 Ultra `SM-S938B` (`S938BXXS9CZE1`) | `android15-6.6` | Device-tested |
 | `pa3q-S938NKSUACZF1` | Galaxy S25 Ultra `SM-S938N` (`S938NKSUACZF1`) | `android15-6.6` | Device-tested |
 | `pa3q-S9380ZHUBCZF1` | Galaxy S25 Ultra `SM-S9380` (`S9380ZHUBCZF1`) | `android15-6.6` | Device-tested |
+| `pa3q-S9380ZCUBCZF1` | Galaxy S25 Ultra `SM-S9380` (`S9380ZCUBCZF1`) | `android15-6.6` | Exploit extracted from APK, kernel strings TBD |
 | `galaxy-s25-series-2026-06-07` | Galaxy S25, S25+, S25 Edge, and S25 Ultra regional models | `6.6.98` | Device-tested |
 | `e3q-S928USQS6DZF2` | Galaxy S24 Ultra `SM-S928U` | `6.1.145` | Hardware debugging in progress |
 | `e2s-S926BXXUEDZDR` | Galaxy S24+ `SM-S926B` | `6.1.157` | Device-tested |
@@ -44,6 +45,7 @@ schema version 3. `targets-v2.json` is retained for released 0.2.3 clients.
 ```sh
 make TARGET=pa3q-S938BXXS9CZE1 ANDROID_NDK_HOME=/path/to/android-ndk
 make TARGET=pa3q-S938NKSUACZF1 ANDROID_NDK_HOME=/path/to/android-ndk
+make TARGET=pa3q-S9380ZCUBCZF1 ANDROID_NDK_HOME=/path/to/android-ndk
 make TARGET=e3q-S928USQS6DZF2 ANDROID_NDK_HOME=/path/to/android-ndk
 make TARGET=e2s-S926BXXUEDZDR ANDROID_NDK_HOME=/path/to/android-ndk
 make TARGET=essi-S721NKSSCDZF3 ANDROID_NDK_HOME=/path/to/android-ndk
