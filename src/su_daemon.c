@@ -3,6 +3,7 @@
 #include <errno.h>
 #include <fcntl.h>
 #include <dlfcn.h>
+#include <limits.h>
 #include <poll.h>
 #include <sched.h>
 #include <signal.h>
@@ -28,6 +29,7 @@
 #define SH_PATH "/system/bin/sh"
 #define S25U_KSUD_PATH "/data/local/tmp/.ksud-stage"
 #define S938B_KO_PATH "/data/local/tmp/android15-6.6_kernelsu-s938b-cze1-kdp.ko"
+#define KSU_LOADER_PATH "/data/local/tmp/ksud-s25u-kdp"
 #define LOGCAT_PATH "/system/bin/logcat"
 #define S938B_KO_FD_PATH "/proc/self/fd/0"
 
@@ -445,7 +447,7 @@ static int verify_kernelsu_control(void) {
   return 0;
 }
 
-static int run_s25u_late_load(struct su_request *request, int conn) {
+static int run_kernelsu_late_load(struct su_request *request, int conn) {
   pid_t pid = fork();
   if (pid < 0) {
     return 1;
@@ -466,7 +468,7 @@ static int run_s25u_late_load(struct su_request *request, int conn) {
               strerror(errno));
       _exit(10);
     }
-    if (mount(S25U_KSUD_PATH, LOGCAT_PATH, NULL, MS_BIND, NULL) != 0) {
+    if (mount(KSU_LOADER_PATH, LOGCAT_PATH, NULL, MS_BIND, NULL) != 0) {
       dprintf(STDERR_FILENO, "late-load: bind mount: %s\n", strerror(errno));
       _exit(11);
     }
@@ -477,8 +479,11 @@ static int run_s25u_late_load(struct su_request *request, int conn) {
       _exit(12);
     }
     if (loader == 0) {
-      execl(LOGCAT_PATH, "logcat", "late-load", "--kmi", "android15-6.6",
-            "--package-name", "me.weishu.kernelsu", (char *)NULL);
+      /* Let the downloaded target-specific ksud select its embedded module
+       * from the running kernel.  Hard-coding android15-6.6 made the shared
+       * loader path unusable for exact 6.1 payloads such as E2S. */
+      execl(LOGCAT_PATH, "logcat", "late-load", "--package-name",
+            "me.weishu.kernelsu", (char *)NULL);
       dprintf(STDERR_FILENO, "late-load: exec: %s\n", strerror(errno));
       _exit(12);
     }
@@ -881,14 +886,14 @@ static void serve_one(int conn) {
     return;
   }
 
-  int is_s25u_late_load = request.header.argc == 2 &&
-                           strcmp(request.argv[1], "--late-load") == 0;
+  int is_kernelsu_late_load = request.header.argc == 2 &&
+                              strcmp(request.argv[1], "--late-load") == 0;
   int is_s938b_insmod = request.header.argc == 2 &&
                         strcmp(request.argv[1], "--insmod") == 0;
   int status = is_s938b_insmod
                    ? run_s938b_insmod(&request, conn)
-                   : is_s25u_late_load
-                   ? run_s25u_late_load(&request, conn)
+                   : is_kernelsu_late_load
+                   ? run_kernelsu_late_load(&request, conn)
                    : request.header.interactive
                          ? run_interactive(&request, conn)
                          : run_direct(&request, conn);
@@ -963,27 +968,195 @@ static int umh_main(int argc, char **argv) {
   return daemon_main();
 }
 
+static void relay_payload_log_tail(const char *path, int transport_fd) {
+  const off_t tail_size = 64 * 1024;
+  int fd = open(path, O_RDONLY | O_CLOEXEC);
+  if (fd < 0) {
+    dprintf(transport_fd, "[runner-tail] open failed errno=%d\n", errno);
+    return;
+  }
+  struct stat st;
+  if (fstat(fd, &st) != 0) {
+    dprintf(transport_fd, "[runner-tail] stat failed errno=%d\n", errno);
+    close(fd);
+    return;
+  }
+  off_t start = st.st_size > tail_size ? st.st_size - tail_size : 0;
+  if (lseek(fd, start, SEEK_SET) < 0) {
+    dprintf(transport_fd, "[runner-tail] seek failed errno=%d\n", errno);
+    close(fd);
+    return;
+  }
+  dprintf(transport_fd, "[runner-tail] path=%s bytes=%lld start=%lld\n",
+          path, (long long)st.st_size, (long long)start);
+  char buffer[4096];
+  for (;;) {
+    ssize_t got = read(fd, buffer, sizeof(buffer));
+    if (got < 0 && errno == EINTR) {
+      continue;
+    }
+    if (got <= 0 || !write_full(transport_fd, buffer, (size_t)got)) {
+      break;
+    }
+  }
+  close(fd);
+}
+
+static pid_t follow_payload_log(const char *path, int transport_fd,
+                                pid_t payload_pid, int *status) {
+  int fd = open(path, O_RDONLY | O_CLOEXEC);
+  int transport_ok = 1;
+  if (fd < 0) {
+    dprintf(transport_fd, "[runner-live] open failed errno=%d\n", errno);
+    pid_t waited;
+    do {
+      waited = waitpid(payload_pid, status, 0);
+    } while (waited < 0 && errno == EINTR);
+    return waited;
+  }
+
+  if (dprintf(transport_fd, "[runner-live] following path=%s interval_ms=100\n",
+              path) < 0) {
+    transport_ok = 0;
+  }
+
+  char buffer[4096];
+  for (;;) {
+    for (;;) {
+      ssize_t got = read(fd, buffer, sizeof(buffer));
+      if (got < 0 && errno == EINTR) {
+        continue;
+      }
+      if (got < 0) {
+        if (transport_ok) {
+          dprintf(transport_fd, "[runner-live] read failed errno=%d\n", errno);
+        }
+        close(fd);
+        pid_t waited;
+        do {
+          waited = waitpid(payload_pid, status, 0);
+        } while (waited < 0 && errno == EINTR);
+        return waited;
+      }
+      if (got == 0) {
+        break;
+      }
+      if (transport_ok &&
+          !write_full(transport_fd, buffer, (size_t)got)) {
+        transport_ok = 0;
+      }
+    }
+
+    pid_t waited = waitpid(payload_pid, status, WNOHANG);
+    if (waited == payload_pid) {
+      /* The writer has exited. Drain bytes appended between the last EOF and
+       * waitpid before returning the final status to the adb shell. */
+      for (;;) {
+        ssize_t got = read(fd, buffer, sizeof(buffer));
+        if (got < 0 && errno == EINTR) {
+          continue;
+        }
+        if (got <= 0) {
+          break;
+        }
+        if (transport_ok &&
+            !write_full(transport_fd, buffer, (size_t)got)) {
+          transport_ok = 0;
+        }
+      }
+      if (transport_ok) {
+        dprintf(transport_fd, "[runner-live] child=%d complete status=0x%x\n",
+                payload_pid, *status);
+      }
+      close(fd);
+      return waited;
+    }
+    if (waited < 0) {
+      close(fd);
+      return waited;
+    }
+    usleep(100000);
+  }
+}
+
 static int payload_runner_main(int argc, char **argv) {
   if (argc != 5) {
     return 2;
   }
 
-  if (prctl(PR_SET_PDEATHSIG, SIGKILL) != 0 || getppid() == 1) {
-    return errno ? errno : ESRCH;
+  int transport_fd = fcntl(STDOUT_FILENO, F_DUPFD_CLOEXEC, 3);
+  if (transport_fd < 0) {
+    return errno;
   }
 
   int log_fd = open(argv[4], O_WRONLY | O_CREAT | O_TRUNC | O_CLOEXEC, 0600);
   if (log_fd < 0 || dup2(log_fd, STDOUT_FILENO) < 0 ||
       dup2(log_fd, STDERR_FILENO) < 0) {
-    return errno ? errno : EIO;
+    int saved_errno = errno ? errno : EIO;
+    dprintf(transport_fd, "[runner-tail] log setup failed errno=%d\n",
+            saved_errno);
+    close(transport_fd);
+    return saved_errno;
   }
   if (log_fd > STDERR_FILENO) {
     close(log_fd);
   }
+  if (setvbuf(stdout, NULL, _IONBF, 0) != 0 ||
+      setvbuf(stderr, NULL, _IONBF, 0) != 0) {
+    return errno ? errno : EIO;
+  }
 
-  if (setenv("CVE43499_ROOT_HELPER", argv[3], 1) != 0) {
+  /*
+   * RDB can drop while the allocator search is still running.  Keep a
+   * waitable foreground supervisor for normal adb behavior, but execute the
+   * payload in a new session so loss of the shell cannot kill the only run on
+   * this boot.  The child owns the persistent log and remains observable by
+   * the same helper process when the transport stays alive.
+   */
+  signal(SIGHUP, SIG_IGN);
+  pid_t payload_pid = fork();
+  if (payload_pid < 0) {
+    close(transport_fd);
     return errno;
   }
+  if (payload_pid > 0) {
+    int status = 0;
+    pid_t waited = follow_payload_log(argv[4], transport_fd, payload_pid,
+                                      &status);
+    if (waited < 0) {
+      int saved_errno = errno;
+      relay_payload_log_tail(argv[4], transport_fd);
+      close(transport_fd);
+      return saved_errno;
+    }
+    close(transport_fd);
+    if (WIFEXITED(status)) {
+      return WEXITSTATUS(status);
+    }
+    if (WIFSIGNALED(status)) {
+      return 128 + WTERMSIG(status);
+    }
+    return ECHILD;
+  }
+
+  close(transport_fd);
+  signal(SIGHUP, SIG_IGN);
+  if (prctl(PR_SET_PDEATHSIG, 0) != 0 || setsid() < 0) {
+    return errno ? errno : EPERM;
+  }
+  prctl(PR_SET_NAME, "cve43499-run", 0, 0, 0);
+
+  char root_helper_path[PATH_MAX];
+  if (!realpath(argv[3], root_helper_path)) {
+    dprintf(STDERR_FILENO,
+            "[app] root helper realpath failed path=%s errno=%d\n", argv[3],
+            errno);
+    return errno ? errno : ENOENT;
+  }
+  if (setenv("CVE43499_ROOT_HELPER", root_helper_path, 1) != 0) {
+    return errno;
+  }
+  dprintf(STDERR_FILENO, "[app] root helper=%s\n", root_helper_path);
   dprintf(STDERR_FILENO, "[app] loading verified payload=%s\n", argv[2]);
   void *handle = dlopen(argv[2], RTLD_NOW | RTLD_LOCAL);
   if (!handle) {
@@ -991,6 +1164,8 @@ static int payload_runner_main(int argc, char **argv) {
     return ENOEXEC;
   }
   dprintf(STDERR_FILENO, "[app] payload constructor returned\n");
+  fflush(NULL);
+  fsync(STDOUT_FILENO);
   return 0;
 }
 
