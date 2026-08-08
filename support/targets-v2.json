@@ -186,6 +186,481 @@
         "kmi": "android15-6.6",
         "managerPackage": "me.weishu.kernelsu"
       }
+    },
+    {
+      "profileId": "dm1q-S9110ZCS8FZG1",
+      "manufacturer": "samsung",
+      "model": "SM-S9110",
+      "device": "dm1q",
+      "kernelRelease": "TBD",
+      "kernelVersion": "TBD",
+      "kernelBuildVersion": "TBD",
+      "buildDisplay": "TBD",
+      "buildFingerprint": "TBD",
+      "sdk": 0,
+      "abi": "arm64-v8a",
+      "pageSize": 4096,
+      "exploit": {
+        "url": "https://raw.githubusercontent.com/2253845067/Root-My-Galaxy-Payloads/main/artifacts/dm1q-S9110ZCS8FZG1/cve-2026-43499-app.so",
+        "size": 122192,
+        "sha256": "05bd63b2c7b0b63ca49cb0783d07ca4150c7bbfa0400710d298f2ff509dfddee"
+      },
+      "kernelsu": {
+        "url": "https://raw.githubusercontent.com/2253845067/Root-My-Galaxy-Payloads/main/kernelsu/ksud-dm3q-S9180ZHS8FZF5-kdp",
+        "size": 4556352,
+        "kmi": "android13-5.15",
+        "managerPackage": "me.weishu.kernelsu"
+      }
+    },
+    {
+      "profileId": "dm2q-S9160ZCS8FZG1",
+      "manufacturer": "samsung",
+      "model": "SM-S9160",
+      "device": "dm2q",
+      "kernelRelease": "TBD",
+      "kernelVersion": "TBD",
+      "kernelBuildVersion": "TBD",
+      "buildDisplay": "TBD",
+      "buildFingerprint": "TBD",
+      "sdk": 0,
+      "abi": "arm64-v8a",
+      "pageSize": 4096,
+      "exploit": {
+        "url": "https://raw.githubusercontent.com/2253845067/Root-My-Galaxy-Payloads/main/artifacts/dm2q-S9160ZCS8FZG1/cve-2026-43499-app.so",
+        "size": 122192,
+        "sha256": "4d48bdc29f96129fdded94a7c041c833181e66ce45fec658bcbcc7c61826f4bd"
+      },
+      "kernelsu": {
+        "url": "https://raw.githubusercontent.com/2253845067/Root-My-Galaxy-Payloads/main/kernelsu/ksud-dm3q-S9180ZHS8FZF5-kdp",
+        "size": 4556352,
+        "kmi": "android13-5.15",
+        "managerPackage": "me.weishu.kernelsu"
+      }
+    },
+    {
+      "profileId": "dm3q-S9180ZCS8FZG1",
+      "manufacturer": "samsung",
+      "model": "SM-S9180",
+      "device": "dm3q",
+      "kernelRelease": "TBD",
+      "kernelVersion": "TBD",
+      "kernelBuildVersion": "TBD",
+      "buildDisplay": "TBD",
+      "buildFingerprint": "TBD",
+      "sdk": 0,
+      "abi": "arm64-v8a",
+      "pageSize": 4096,
+      "exploit": {
+        "url": "https://raw.githubusercontent.com/2253845067/Root-My-Galaxy-Payloads/main/artifacts/dm3q-S9180ZCS8FZG1/cve-2026-43499-app.so",
+        "size": 122192,
+        "sha256": "5cd60cc2dcb111a876e8b7ff835006802acff1a7466c761405cdf3d9946f73a2"
+      },
+      "kernelsu": {
+        "url": "https://raw.githubusercontent.com/2253845067/Root-My-Galaxy-Payloads/main/kernelsu/ksud-dm3q-S9180ZHS8FZF5-kdp",
+        "size": 4556352,
+        "kmi": "android13-5.15",
+        "managerPackage": "me.weishu.kernelsu"
+      }
+    },
+    {
+      "profileId": "e1s-S9210ZCS6DZG1",
+      "manufacturer": "samsung",
+      "model": "SM-S9210",
+      "device": "e1s",
+      "kernelRelease": "TBD",
+      "kernelVersion": "TBD",
+      "kernelBuildVersion": "TBD",
+      "buildDisplay": "TBD",
+      "buildFingerprint": "TBD",
+      "sdk": 0,
+      "abi": "arm64-v8a",
+      "pageSize": 4096,
+      "exploit": {
+        "url": "https://raw.githubusercontent.com/2253845067/Root-My-Galaxy-Payloads/main/artifacts/e1s-S9210ZCS6DZG1/cve-2026-43499-app.so",
+        "size": 122192,
+        "sha256": "e2245ead867ddaa326444dbe5d129289d70f04aedf8269f0209737834321e7b6"
+      },
+      "kernelsu": {
+        "url": "https://raw.githubusercontent.com/2253845067/Root-My-Galaxy-Payloads/main/kernelsu/ksud-e1s-S921BXXSFDZE1-kdp",
+        "size": 4920520,
+        "kmi": "android14-6.1",
+        "managerPackage": "me.weishu.kernelsu"
+      }
+    },
+    {
+      "profileId": "e2s-S9260ZCS6DZG1",
+      "manufacturer": "samsung",
+      "model": "SM-S9260",
+      "device": "e2s",
+      "kernelRelease": "TBD",
+      "kernelVersion": "TBD",
+      "kernelBuildVersion": "TBD",
+      "buildDisplay": "TBD",
+      "buildFingerprint": "TBD",
+      "sdk": 0,
+      "abi": "arm64-v8a",
+      "pageSize": 4096,
+      "exploit": {
+        "url": "https://raw.githubusercontent.com/2253845067/Root-My-Galaxy-Payloads/main/artifacts/e2s-S9260ZCS6DZG1/cve-2026-43499-app.so",
+        "size": 122192,
+        "sha256": "1acf1cfdfc57bd5314a705e811c9fe26b83d74e5cc968f43a67d3c95496b526e"
+      },
+      "kernelsu": {
+        "url": "https://raw.githubusercontent.com/2253845067/Root-My-Galaxy-Payloads/main/kernelsu/ksud-e2s-S926BXXUEDZDR-kdp",
+        "size": 4780056,
+        "kmi": "android14-6.1",
+        "managerPackage": "me.weishu.kernelsu"
+      }
+    },
+    {
+      "profileId": "e3q-S9280ZCS6DZG1",
+      "manufacturer": "samsung",
+      "model": "SM-S9280",
+      "device": "e3q",
+      "kernelRelease": "TBD",
+      "kernelVersion": "TBD",
+      "kernelBuildVersion": "TBD",
+      "buildDisplay": "TBD",
+      "buildFingerprint": "TBD",
+      "sdk": 0,
+      "abi": "arm64-v8a",
+      "pageSize": 4096,
+      "exploit": {
+        "url": "https://raw.githubusercontent.com/2253845067/Root-My-Galaxy-Payloads/main/artifacts/e3q-S9280ZCS6DZG1/cve-2026-43499-app.so",
+        "size": 122192,
+        "sha256": "8ac12c856dbd90ef4850e9d947c35c13a91cf8c8e0dfbbf1cfbd66a51e28bdbe"
+      },
+      "kernelsu": {
+        "url": "https://raw.githubusercontent.com/2253845067/Root-My-Galaxy-Payloads/main/kernelsu/ksud-e3q-S928USQS6DZF2-kdp",
+        "size": 4726416,
+        "kmi": "android14-6.1",
+        "managerPackage": "me.weishu.kernelsu"
+      }
+    },
+    {
+      "profileId": "pa3q-S9310ZCSCCZG1",
+      "manufacturer": "samsung",
+      "model": "SM-S9310",
+      "device": "pa3q",
+      "kernelRelease": "TBD",
+      "kernelVersion": "TBD",
+      "kernelBuildVersion": "TBD",
+      "buildDisplay": "TBD",
+      "buildFingerprint": "TBD",
+      "sdk": 0,
+      "abi": "arm64-v8a",
+      "pageSize": 4096,
+      "exploit": {
+        "url": "https://raw.githubusercontent.com/2253845067/Root-My-Galaxy-Payloads/main/artifacts/pa3q-S9310ZCSCCZG1/cve-2026-43499-app.so",
+        "size": 122144,
+        "sha256": "8e090c3958f90e7044c017230c74cfcd2dd77bc42bda5eb5991faace9de6c9f4"
+      },
+      "kernelsu": {
+        "url": "https://raw.githubusercontent.com/2253845067/Root-My-Galaxy-Payloads/main/kernelsu/ksud-s25u-kdp",
+        "size": 6407096,
+        "kmi": "android15-6.6",
+        "managerPackage": "me.weishu.kernelsu"
+      }
+    },
+    {
+      "profileId": "pa3q-S9360ZCSCCZG1",
+      "manufacturer": "samsung",
+      "model": "SM-S9360",
+      "device": "pa3q",
+      "kernelRelease": "TBD",
+      "kernelVersion": "TBD",
+      "kernelBuildVersion": "TBD",
+      "buildDisplay": "TBD",
+      "buildFingerprint": "TBD",
+      "sdk": 0,
+      "abi": "arm64-v8a",
+      "pageSize": 4096,
+      "exploit": {
+        "url": "https://raw.githubusercontent.com/2253845067/Root-My-Galaxy-Payloads/main/artifacts/pa3q-S9360ZCSCCZG1/cve-2026-43499-app.so",
+        "size": 122144,
+        "sha256": "e8b88097888cde04609469e612390313c85142104e9de50acc8bddd3103a6178"
+      },
+      "kernelsu": {
+        "url": "https://raw.githubusercontent.com/2253845067/Root-My-Galaxy-Payloads/main/kernelsu/ksud-s25u-kdp",
+        "size": 6407096,
+        "kmi": "android15-6.6",
+        "managerPackage": "me.weishu.kernelsu"
+      }
+    },
+    {
+      "profileId": "pa3q-S9370ZCS9CZG1",
+      "manufacturer": "samsung",
+      "model": "SM-S9370",
+      "device": "pa3q",
+      "kernelRelease": "TBD",
+      "kernelVersion": "TBD",
+      "kernelBuildVersion": "TBD",
+      "buildDisplay": "TBD",
+      "buildFingerprint": "TBD",
+      "sdk": 0,
+      "abi": "arm64-v8a",
+      "pageSize": 4096,
+      "exploit": {
+        "url": "https://raw.githubusercontent.com/2253845067/Root-My-Galaxy-Payloads/main/artifacts/pa3q-S9370ZCS9CZG1/cve-2026-43499-app.so",
+        "size": 122144,
+        "sha256": "bb1480b8059e4652ecab36a92176e6625981392e548f75871941280369b83f47"
+      },
+      "kernelsu": {
+        "url": "https://raw.githubusercontent.com/2253845067/Root-My-Galaxy-Payloads/main/kernelsu/ksud-s25u-kdp",
+        "size": 6407096,
+        "kmi": "android15-6.6",
+        "managerPackage": "me.weishu.kernelsu"
+      }
+    },
+    {
+      "profileId": "pa3q-S9370ZCU8CZF1",
+      "manufacturer": "samsung",
+      "model": "SM-S9370",
+      "device": "pa3q",
+      "kernelRelease": "TBD",
+      "kernelVersion": "TBD",
+      "kernelBuildVersion": "TBD",
+      "buildDisplay": "TBD",
+      "buildFingerprint": "TBD",
+      "sdk": 0,
+      "abi": "arm64-v8a",
+      "pageSize": 4096,
+      "exploit": {
+        "url": "https://raw.githubusercontent.com/2253845067/Root-My-Galaxy-Payloads/main/artifacts/pa3q-S9370ZCU8CZF1/cve-2026-43499-app.so",
+        "size": 122144,
+        "sha256": "239658ac0860d3c905a100713fa42e1b0677815cf3e488dce0b0e7e296670b63"
+      },
+      "kernelsu": {
+        "url": "https://raw.githubusercontent.com/2253845067/Root-My-Galaxy-Payloads/main/kernelsu/ksud-s25u-kdp",
+        "size": 6407096,
+        "kmi": "android15-6.6",
+        "managerPackage": "me.weishu.kernelsu"
+      }
+    },
+    {
+      "profileId": "pa3q-S9380ZCSCCZG1",
+      "manufacturer": "samsung",
+      "model": "SM-S9380",
+      "device": "pa3q",
+      "kernelRelease": "TBD",
+      "kernelVersion": "TBD",
+      "kernelBuildVersion": "TBD",
+      "buildDisplay": "TBD",
+      "buildFingerprint": "TBD",
+      "sdk": 0,
+      "abi": "arm64-v8a",
+      "pageSize": 4096,
+      "exploit": {
+        "url": "https://raw.githubusercontent.com/2253845067/Root-My-Galaxy-Payloads/main/artifacts/pa3q-S9380ZCSCCZG1/cve-2026-43499-app.so",
+        "size": 122144,
+        "sha256": "59ddb24d608c2e4b8da96bc1cb86f9f1451e5db2bfcc3e2a644d360a3df6dd78"
+      },
+      "kernelsu": {
+        "url": "https://raw.githubusercontent.com/2253845067/Root-My-Galaxy-Payloads/main/kernelsu/ksud-s25u-kdp",
+        "size": 6407096,
+        "kmi": "android15-6.6",
+        "managerPackage": "me.weishu.kernelsu"
+      }
+    },
+    {
+      "profileId": "q7q-F7610ZCS9GZF1",
+      "manufacturer": "samsung",
+      "model": "SM-F7610",
+      "device": "q7q",
+      "kernelRelease": "TBD",
+      "kernelVersion": "TBD",
+      "kernelBuildVersion": "TBD",
+      "buildDisplay": "TBD",
+      "buildFingerprint": "TBD",
+      "sdk": 0,
+      "abi": "arm64-v8a",
+      "pageSize": 4096,
+      "exploit": {
+        "url": "https://raw.githubusercontent.com/2253845067/Root-My-Galaxy-Payloads/main/artifacts/q7q-F7610ZCS9GZF1/cve-2026-43499-app.so",
+        "size": 122192,
+        "sha256": "cc44267cfd0aea52985afb847ae61b5950a3516b3d6d98758acee5f5b995e18b"
+      },
+      "kernelsu": {
+        "url": "https://raw.githubusercontent.com/2253845067/Root-My-Galaxy-Payloads/main/kernelsu/ksud-s25u-kdp",
+        "size": 6407096,
+        "kmi": "android15-6.6",
+        "managerPackage": "me.weishu.kernelsu"
+      }
+    },
+    {
+      "profileId": "q7q-F7660ZCSBBZG3",
+      "manufacturer": "samsung",
+      "model": "SM-F7660",
+      "device": "q7q",
+      "kernelRelease": "TBD",
+      "kernelVersion": "TBD",
+      "kernelBuildVersion": "TBD",
+      "buildDisplay": "TBD",
+      "buildFingerprint": "TBD",
+      "sdk": 0,
+      "abi": "arm64-v8a",
+      "pageSize": 4096,
+      "exploit": {
+        "url": "https://raw.githubusercontent.com/2253845067/Root-My-Galaxy-Payloads/main/artifacts/q7q-F7660ZCSBBZG3/cve-2026-43499-app.so",
+        "size": 122144,
+        "sha256": "f0a7c6eb713a96013e2fb89873ebe598db8a398593bf137d70e1590b207b3e08"
+      },
+      "kernelsu": {
+        "url": "https://raw.githubusercontent.com/2253845067/Root-My-Galaxy-Payloads/main/kernelsu/ksud-s25u-kdp",
+        "size": 6407096,
+        "kmi": "android15-6.6",
+        "managerPackage": "me.weishu.kernelsu"
+      }
+    },
+    {
+      "profileId": "q7q-F9460ZCS9GZF1",
+      "manufacturer": "samsung",
+      "model": "SM-F9460",
+      "device": "q7q",
+      "kernelRelease": "TBD",
+      "kernelVersion": "TBD",
+      "kernelBuildVersion": "TBD",
+      "buildDisplay": "TBD",
+      "buildFingerprint": "TBD",
+      "sdk": 0,
+      "abi": "arm64-v8a",
+      "pageSize": 4096,
+      "exploit": {
+        "url": "https://raw.githubusercontent.com/2253845067/Root-My-Galaxy-Payloads/main/artifacts/q7q-F9460ZCS9GZF1/cve-2026-43499-app.so",
+        "size": 122192,
+        "sha256": "88844b751db1038820a32ed10f363f1479109ebbff3672269a5ce49dfb76aee1"
+      },
+      "kernelsu": {
+        "url": "https://raw.githubusercontent.com/2253845067/Root-My-Galaxy-Payloads/main/kernelsu/ksud-s25u-kdp",
+        "size": 6407096,
+        "kmi": "android15-6.6",
+        "managerPackage": "me.weishu.kernelsu"
+      }
+    },
+    {
+      "profileId": "q7q-F9560ZCS4DZG3",
+      "manufacturer": "samsung",
+      "model": "SM-F9560",
+      "device": "q7q",
+      "kernelRelease": "TBD",
+      "kernelVersion": "TBD",
+      "kernelBuildVersion": "TBD",
+      "buildDisplay": "TBD",
+      "buildFingerprint": "TBD",
+      "sdk": 0,
+      "abi": "arm64-v8a",
+      "pageSize": 4096,
+      "exploit": {
+        "url": "https://raw.githubusercontent.com/2253845067/Root-My-Galaxy-Payloads/main/artifacts/q7q-F9560ZCS4DZG3/cve-2026-43499-app.so",
+        "size": 122192,
+        "sha256": "eb995a815901b01ac4316c256f409bd2ae926e18a8fe2d43ca6709e984cfdae3"
+      },
+      "kernelsu": {
+        "url": "https://raw.githubusercontent.com/2253845067/Root-My-Galaxy-Payloads/main/kernelsu/ksud-s25u-kdp",
+        "size": 6407096,
+        "kmi": "android15-6.6",
+        "managerPackage": "me.weishu.kernelsu"
+      }
+    },
+    {
+      "profileId": "q7q-F9660ZCSBBZG3",
+      "manufacturer": "samsung",
+      "model": "SM-F9660",
+      "device": "q7q",
+      "kernelRelease": "TBD",
+      "kernelVersion": "TBD",
+      "kernelBuildVersion": "TBD",
+      "buildDisplay": "TBD",
+      "buildFingerprint": "TBD",
+      "sdk": 0,
+      "abi": "arm64-v8a",
+      "pageSize": 4096,
+      "exploit": {
+        "url": "https://raw.githubusercontent.com/2253845067/Root-My-Galaxy-Payloads/main/artifacts/q7q-F9660ZCSBBZG3/cve-2026-43499-app.so",
+        "size": 122144,
+        "sha256": "e56df8dc07c83e8a62d7b27b4dc434c00ea085c0286dc65f51cd8dc2b6ba43d1"
+      },
+      "kernelsu": {
+        "url": "https://raw.githubusercontent.com/2253845067/Root-My-Galaxy-Payloads/main/kernelsu/ksud-s25u-kdp",
+        "size": 6407096,
+        "kmi": "android15-6.6",
+        "managerPackage": "me.weishu.kernelsu"
+      }
+    },
+    {
+      "profileId": "r9q-S9010ZCSBGZE3",
+      "manufacturer": "samsung",
+      "model": "SM-S9010",
+      "device": "r9q",
+      "kernelRelease": "TBD",
+      "kernelVersion": "TBD",
+      "kernelBuildVersion": "TBD",
+      "buildDisplay": "TBD",
+      "buildFingerprint": "TBD",
+      "sdk": 0,
+      "abi": "arm64-v8a",
+      "pageSize": 4096,
+      "exploit": {
+        "url": "https://raw.githubusercontent.com/2253845067/Root-My-Galaxy-Payloads/main/artifacts/r9q-S9010ZCSBGZE3/cve-2026-43499-app.so",
+        "size": 122128,
+        "sha256": "49d62af1277de90e099e7d4715daf643625756701f69fdd4482f59a4b1271df5"
+      },
+      "kernelsu": {
+        "url": "https://raw.githubusercontent.com/2253845067/Root-My-Galaxy-Payloads/main/kernelsu/ksud-samsung-android12-5.10-kdp",
+        "size": 6649032,
+        "kmi": "android12-5.10",
+        "managerPackage": "me.weishu.kernelsu"
+      }
+    },
+    {
+      "profileId": "r9q-S9060ZCSBGZE3",
+      "manufacturer": "samsung",
+      "model": "SM-S9060",
+      "device": "r9q",
+      "kernelRelease": "TBD",
+      "kernelVersion": "TBD",
+      "kernelBuildVersion": "TBD",
+      "buildDisplay": "TBD",
+      "buildFingerprint": "TBD",
+      "sdk": 0,
+      "abi": "arm64-v8a",
+      "pageSize": 4096,
+      "exploit": {
+        "url": "https://raw.githubusercontent.com/2253845067/Root-My-Galaxy-Payloads/main/artifacts/r9q-S9060ZCSBGZE3/cve-2026-43499-app.so",
+        "size": 122128,
+        "sha256": "3a988bbb36322aa863eaf339c8d061a361726aae73e9e73b60b0baee20432551"
+      },
+      "kernelsu": {
+        "url": "https://raw.githubusercontent.com/2253845067/Root-My-Galaxy-Payloads/main/kernelsu/ksud-samsung-android12-5.10-kdp",
+        "size": 6649032,
+        "kmi": "android12-5.10",
+        "managerPackage": "me.weishu.kernelsu"
+      }
+    },
+    {
+      "profileId": "r9q-S9080ZCSBGZE3",
+      "manufacturer": "samsung",
+      "model": "SM-S9080",
+      "device": "r9q",
+      "kernelRelease": "TBD",
+      "kernelVersion": "TBD",
+      "kernelBuildVersion": "TBD",
+      "buildDisplay": "TBD",
+      "buildFingerprint": "TBD",
+      "sdk": 0,
+      "abi": "arm64-v8a",
+      "pageSize": 4096,
+      "exploit": {
+        "url": "https://raw.githubusercontent.com/2253845067/Root-My-Galaxy-Payloads/main/artifacts/r9q-S9080ZCSBGZE3/cve-2026-43499-app.so",
+        "size": 122128,
+        "sha256": "7d269f7617e081f7019dac72361894de2cbfb28617913bfb765e83d3dfa77c06"
+      },
+      "kernelsu": {
+        "url": "https://raw.githubusercontent.com/2253845067/Root-My-Galaxy-Payloads/main/kernelsu/ksud-samsung-android12-5.10-kdp",
+        "size": 6649032,
+        "kmi": "android12-5.10",
+        "managerPackage": "me.weishu.kernelsu"
+      }
     }
   ]
 }

@@ -25,6 +25,25 @@ It intentionally does not contain Android application source code.
 | `essi-A566EXXSCCZG6` | Galaxy A56 5G `SM-A566E` | `6.6.102` | Device-tested |
 | `a36xq-A366WVLS3AYG1` | Galaxy A36 5G `SM-A366W` | `6.6.46` | Device-tested |
 | `dm3q-S9180ZHS8FZF5` | Galaxy S23 Ultra `SM-S9180` | `5.15.189` | Test in progress |
+| `r9q-S9010ZCSBGZE3` | Galaxy S22 `SM-S9010` | `android12-5.10` | Exploit from APK, offsets TBD |
+| `r9q-S9060ZCSBGZE3` | Galaxy S22+ `SM-S9060` | `android12-5.10` | Exploit from APK, offsets TBD |
+| `r9q-S9080ZCSBGZE3` | Galaxy S22 Ultra `SM-S9080` | `android12-5.10` | Exploit from APK, offsets TBD |
+| `dm1q-S9110ZCS8FZG1` | Galaxy S23 FE `SM-S9110` | `android13-5.15` | Exploit from APK, offsets TBD |
+| `dm2q-S9160ZCS8FZG1` | Galaxy S23+ `SM-S9160` | `android13-5.15` | Exploit from APK, offsets TBD |
+| `dm3q-S9180ZCS8FZG1` | Galaxy S23 Ultra `SM-S9180` | `android13-5.15` | Exploit from APK, offsets TBD |
+| `e1s-S9210ZCS6DZG1` | Galaxy S24 `SM-S9210` | `android14-6.1` | Exploit from APK, offsets TBD |
+| `e2s-S9260ZCS6DZG1` | Galaxy S24+ `SM-S9260` | `android14-6.1` | Exploit from APK, offsets TBD |
+| `e3q-S9280ZCS6DZG1` | Galaxy S24 Ultra `SM-S9280` | `android14-6.1` | Exploit from APK, offsets TBD |
+| `pa3q-S9310ZCSCCZG1` | Galaxy S25 `SM-S9310` | `android15-6.6` | Exploit from APK, offsets TBD |
+| `pa3q-S9360ZCSCCZG1` | Galaxy S25+ `SM-S9360` | `android15-6.6` | Exploit from APK, offsets TBD |
+| `pa3q-S9370ZCS9CZG1` | Galaxy S25 Ultra `SM-S9370` | `android15-6.6` | Exploit from APK, offsets TBD |
+| `pa3q-S9370ZCU8CZF1` | Galaxy S25 Ultra `SM-S9370` | `android15-6.6` | Exploit from APK, offsets TBD |
+| `pa3q-S9380ZCSCCZG1` | Galaxy S25 Ultra `SM-S9380` | `android15-6.6` | Exploit from APK, offsets TBD |
+| `q7q-F7610ZCS9GZF1` | Galaxy Z Flip 6 `SM-F7610` | `android15-6.6` | Exploit from APK, offsets TBD |
+| `q7q-F7660ZCSBBZG3` | Galaxy Z Flip 7 `SM-F7660` | `android15-6.6` | Exploit from APK, offsets TBD |
+| `q7q-F9460ZCS9GZF1` | Galaxy Z Flip 6 `SM-F9460` | `android15-6.6` | Exploit from APK, offsets TBD |
+| `q7q-F9560ZCS4DZG3` | Galaxy Z Fold 6 `SM-F9560` | `android15-6.6` | Exploit from APK, offsets TBD |
+| `q7q-F9660ZCSBBZG3` | Galaxy Z Fold 7 `SM-F9660` | `android15-6.6` | Exploit from APK, offsets TBD |
 
 Schema version 3 keeps each exploit and KernelSU artifact once. Its flat
 `models` and `kernelVersions` arrays define runtime compatibility. See
@@ -54,6 +73,25 @@ make TARGET=a15-A155NKSS6BYH1 ANDROID_NDK_HOME=/path/to/android-ndk
 make TARGET=essi-A566EXXSCCZG6 ANDROID_NDK_HOME=/path/to/android-ndk
 make TARGET=a36xq-A366WVLS3AYG1 ANDROID_NDK_HOME=/path/to/android-ndk
 make TARGET=dm3q-S9180ZHS8FZF5 ANDROID_NDK_HOME=/path/to/android-ndk
+make TARGET=dm1q-S9110ZCS8FZG1 ANDROID_NDK_HOME=/path/to/android-ndk
+make TARGET=dm2q-S9160ZCS8FZG1 ANDROID_NDK_HOME=/path/to/android-ndk
+make TARGET=dm3q-S9180ZCS8FZG1 ANDROID_NDK_HOME=/path/to/android-ndk
+make TARGET=e1s-S9210ZCS6DZG1 ANDROID_NDK_HOME=/path/to/android-ndk
+make TARGET=e2s-S9260ZCS6DZG1 ANDROID_NDK_HOME=/path/to/android-ndk
+make TARGET=e3q-S9280ZCS6DZG1 ANDROID_NDK_HOME=/path/to/android-ndk
+make TARGET=pa3q-S9310ZCSCCZG1 ANDROID_NDK_HOME=/path/to/android-ndk
+make TARGET=pa3q-S9360ZCSCCZG1 ANDROID_NDK_HOME=/path/to/android-ndk
+make TARGET=pa3q-S9370ZCS9CZG1 ANDROID_NDK_HOME=/path/to/android-ndk
+make TARGET=pa3q-S9370ZCU8CZF1 ANDROID_NDK_HOME=/path/to/android-ndk
+make TARGET=pa3q-S9380ZCSCCZG1 ANDROID_NDK_HOME=/path/to/android-ndk
+make TARGET=q7q-F7610ZCS9GZF1 ANDROID_NDK_HOME=/path/to/android-ndk
+make TARGET=q7q-F7660ZCSBBZG3 ANDROID_NDK_HOME=/path/to/android-ndk
+make TARGET=q7q-F9460ZCS9GZF1 ANDROID_NDK_HOME=/path/to/android-ndk
+make TARGET=q7q-F9560ZCS4DZG3 ANDROID_NDK_HOME=/path/to/android-ndk
+make TARGET=q7q-F9660ZCSBBZG3 ANDROID_NDK_HOME=/path/to/android-ndk
+make TARGET=r9q-S9010ZCSBGZE3 ANDROID_NDK_HOME=/path/to/android-ndk
+make TARGET=r9q-S9060ZCSBGZE3 ANDROID_NDK_HOME=/path/to/android-ndk
+make TARGET=r9q-S9080ZCSBGZE3 ANDROID_NDK_HOME=/path/to/android-ndk
 ```
 
 Outputs:
