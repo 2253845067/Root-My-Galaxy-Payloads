@@ -31,12 +31,13 @@ perf, tracefs, oracle, and dry-run modes are not part of this payload.
 
 The reclaim fix does not depend on the allocator's ambient partial-slab count.
 After selecting a complete Normal-zone `mm_struct` slab, the payload allocates
-24 full trigger slabs and a final rotation object on CPU0. It frees one object
-from each trigger slab, keeps the other trigger references alive, and frees the
-selected slab's last object only after that drain pressure exists. The holder
-process keeps those references until ARW is established, then normal process
-teardown releases them. DMA32 candidates are skipped because they did not
-reclaim reliably into the SKB allocation path on this device.
+24 slab-sized trigger batches (816 references) and a final rotation object on
+CPU0. It frees one object from each trigger batch, keeps the other trigger
+references alive, and frees the selected slab's last object only after that
+drain pressure exists. The holder process keeps those references until ARW is
+established, then normal process teardown releases them. DMA32 candidates are
+skipped because they did not reclaim reliably into the SKB allocation path on
+this device.
 
 ## Device evidence
 
