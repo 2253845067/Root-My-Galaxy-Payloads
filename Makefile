@@ -42,16 +42,14 @@ APP_PRELOAD_SRCS := \
   src/preload.c
 
 ifeq ($(TARGET),a53x-A536EXXSNGZG3)
-APP_RELEASE_SIZE := 196608
 APP_PRELOAD_SRCS := \
-  src/a536_clean/app_payload.c \
-  src/a536_clean/bridge.c \
-  src/a536_clean/poc.c \
-  src/a536_clean/page-leak-probe.c
+  src/targets/a53x-A536EXXSNGZG3/payload.c \
+  src/targets/a53x-A536EXXSNGZG3/chain.c \
+  src/targets/a53x-A536EXXSNGZG3/ghostlock.c \
+  src/targets/a53x-A536EXXSNGZG3/page.c
 PRELOAD_SRCS := $(APP_PRELOAD_SRCS)
-TARGET_CFLAGS += -DA536_APP_PAYLOAD=1
 APP_RELEASE_OPT := -O2
-APP_RELEASE_LINK_FLAGS :=
+APP_RELEASE_LINK_FLAGS := -Wl,--gc-sections -Wl,--icf=all -s
 endif
 
 COMMON_CFLAGS := \
