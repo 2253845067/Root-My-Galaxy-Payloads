@@ -13,6 +13,7 @@ endif
 PRELOAD := $(OUTDIR)/cve-2026-43499
 APP_PRELOAD := $(OUTDIR)/cve-2026-43499-app.so
 APP_RELEASE := $(OUTDIR)/cve-2026-43499-app.release.so
+APP_STABLE := $(OUTDIR)/cve-2026-43499-app.stable.so
 APP_RELEASE_SIZE := 104128
 ROOT_HELPER := $(OUTDIR)/cve-2026-43499-root
 
@@ -41,11 +42,13 @@ COMMON_CFLAGS := \
 
 .DEFAULT_GOAL := all
 
-.PHONY: all clean info release
+.PHONY: all clean info release stable
 
 all: $(PRELOAD) $(APP_PRELOAD) $(ROOT_HELPER)
 
 release: $(APP_RELEASE)
+
+stable: $(APP_STABLE)
 
 $(OUTDIR):
 	mkdir -p $@
@@ -72,12 +75,26 @@ $(APP_RELEASE): $(APP_PRELOAD_SRCS) $(TARGET_HEADER) src/offset.h src/common.h s
 	@test $$(stat -c %s $@) -le $(APP_RELEASE_SIZE)
 	truncate -s $(APP_RELEASE_SIZE) $@
 
+$(APP_STABLE): $(APP_PRELOAD_SRCS) $(TARGET_HEADER) src/offset.h src/common.h src/kernelsnitch/*.h | $(OUTDIR)
+	$(TARGET_CC) -DAPP_PAYLOAD=1 -DAPP_S928_STABLE_RACE=1 \
+	  -fPIC -Oz -g0 -fvisibility=hidden -fno-semantic-interposition \
+	  -fstack-protector-strong \
+	  -fno-unwind-tables -fno-asynchronous-unwind-tables \
+	  -ffunction-sections -fdata-sections \
+	  -Wall -Wextra -Wno-unused-parameter -Wno-sign-compare \
+	  -Isrc -DTARGET_HEADER='"$(TARGET_INCLUDE)"' \
+	  $(APP_PRELOAD_SRCS) -shared -pthread \
+	  -Wl,--gc-sections -Wl,--icf=all -s -o $@
+	@test $$(stat -c %s $@) -le $(APP_RELEASE_SIZE)
+	truncate -s $(APP_RELEASE_SIZE) $@
+
 info:
 	@echo "TARGET=$(TARGET)"
 	@echo "TARGET_CC=$(TARGET_CC)"
 	@echo "PRELOAD=$(PRELOAD)"
 	@echo "APP_PRELOAD=$(APP_PRELOAD)"
 	@echo "APP_RELEASE=$(APP_RELEASE)"
+	@echo "APP_STABLE=$(APP_STABLE)"
 	@echo "ROOT_HELPER=$(ROOT_HELPER)"
 
 clean:
