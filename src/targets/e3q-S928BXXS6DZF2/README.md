@@ -18,7 +18,9 @@ Build fingerprint:
 `samsung/e3qxxx/e3q:16/BP4A.251205.006/S928BXXS6DZF2:user/release-keys`.
 
 KernelSU hardware check: the exact no-patch-text module loaded through the
-target-specific `ksud` and survived without reboot; Manager/persistent-control
-validation remains pending.
+target-specific `ksud` and survived without reboot. KernelSU Manager reported
+`Working <LKM> [Jailbreak mode]`, version `32525-2`, and one superuser. The
+root remains per-boot; no boot image was modified and reboot survival is not
+claimed.
 
 Detail: `docs/SM-S928B-S928BXXS6DZF2.md`. Use only on this exact firmware.

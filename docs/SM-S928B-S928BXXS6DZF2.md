@@ -119,6 +119,16 @@ root umh result wake=1 complete=1 retval=0 socket=1
 The replacement no-patch-text `ksud` then loaded the embedded module without a
 reboot. KernelSU logged `kernelsu.ko loaded successfully!` and entered
 `u:r:ksu:s0`; `/proc/modules` reported `kernelsu` and the boot ID remained
-unchanged. KernelSU Manager and persistent/control-channel validation remain
-pending because the Manager package was not installed during this test. The
+unchanged. KernelSU Manager then reported `Working <LKM> [Jailbreak mode]`,
+version `32525-2`, one superuser, the exact S928B kernel release, and SELinux
+Enforcing. The screenshot is checked in as
+`SM-S928B-S928BXXS6DZF2-KernelSU.png`. The root is still per-boot because no
+boot image was modified; persistent boot survival remains untested. The
 previous live-patching pair triggered the watchdog before this replacement.
+
+![KernelSU Manager on SM-S928B](SM-S928B-S928BXXS6DZF2-KernelSU.png)
+
+Root Checker Basic also reported `Root access is properly installed` for
+`SM-S928B`:
+
+![Root Checker on SM-S928B](SM-S928B-S928BXXS6DZF2-RootChecker.png)
