@@ -15,7 +15,6 @@
         "SM-S931Z",
         "SC-51F",
         "SCG31",
-        "SM-S9360",
         "SM-S936B",
         "SM-S936N",
         "SM-S936U",
@@ -41,6 +40,22 @@
       "exploit": {
         "url": "https://raw.githubusercontent.com/BuSung-dev/Root-My-Galaxy-Payloads/main/artifacts/pa3q-S938NKSUACZF1/cve-2026-43499-app.so",
         "size": 104128
+      },
+      "kernelsu": {
+        "url": "https://raw.githubusercontent.com/BuSung-dev/Root-My-Galaxy-Payloads/main/kernelsu/ksud-s25u-kdp",
+        "size": 6407096
+      }
+    },
+    {
+      "payloadId": "pa2q-S9360ZCSCCZG1",
+      "displayName": "Galaxy S25+ | Kernel 6.6.98",
+      "models": [
+        "SM-S9360"
+      ],
+      "kernelVersions": ["6.6.98"],
+      "exploit": {
+        "url": "https://raw.githubusercontent.com/BuSung-dev/Root-My-Galaxy-Payloads/main/artifacts/pa2q-S9360ZCSCCZG1/cve-2026-43499-app.so",
+        "size": 125904
       },
       "kernelsu": {
         "url": "https://raw.githubusercontent.com/BuSung-dev/Root-My-Galaxy-Payloads/main/kernelsu/ksud-s25u-kdp",
