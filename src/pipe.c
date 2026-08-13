@@ -931,6 +931,22 @@ static void spawn_p0_ref_keeper(int retained_pipe_index) {
   }
 }
 
+void start_p0_ref_keeper(void) {
+  if (p0_gate_holders_initialized) {
+    return;
+  }
+  for (size_t i = 0; i < PIPE_RECLAIM; i++) {
+    p0_gate_holders[i][0] = -1;
+    p0_gate_holders[i][1] = -1;
+  }
+  if (pipe2(p0_gate_holders[0], O_CLOEXEC) < 0) {
+    pr_error("p0 ref keeper gate pipe failed errno=%d\n", errno);
+    return;
+  }
+  p0_gate_holders_initialized = 1;
+  spawn_p0_ref_keeper(0);
+}
+
 int prepare_p0_pipe_oracle(void) {
   _Static_assert(sizeof(struct user_pipe_buffer) == 0x28,
                  "unexpected pipe_buffer size");
