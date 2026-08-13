@@ -80,7 +80,7 @@
     {
       "payloadId": "e3q-S928USQS6DZF2",
       "displayName": "Galaxy S24 Ultra | Kernel 6.1.145",
-      "models": ["SM-S928U1"],
+      "models": ["SM-S928U1", "SM-S928W"],
       "kernelVersions": ["6.1.145"],
       "exploit": {
         "url": "https://raw.githubusercontent.com/BuSung-dev/Root-My-Galaxy-Payloads/main/artifacts/e3q-S928USQS6DZF2/cve-2026-43499-app.so",
