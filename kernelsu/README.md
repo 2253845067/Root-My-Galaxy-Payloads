@@ -26,10 +26,14 @@ between KMIs.
 | `ksud-samsung-android14-6.1-kdp` | Same verified 6.1 targets | `android14-6.1` | Late-load binary embedding the 6.1 module |
 | `android12-5.10_kernelsu-samsung-kdp.ko` | `SM-A155N` `A155NKSS6BYH1` | `android12-5.10` | Standalone Samsung KDP/RKP/DEFEX module built against the exact A15 kernel |
 | `ksud-samsung-android12-5.10-kdp` | `SM-A155N` `A155NKSS6BYH1` | `android12-5.10` | Late-load binary embedding the 5.10 module |
+| `android13-5.15.189_kernelsu-dm2q-S916BXXSAFZG1.ko` | `SM-S916B`, `S916BXXSAFZG1` | `android13-5.15` | Exact-vermagic derived module; full target symbol and CRC audit passed; hardware load untested |
+| `ksud-dm2q-S916BXXSAFZG1-kdp` | Same exact S916B build | `android13-5.15` | Kallsyms-aware late-load binary; hardware load untested |
 
 The standalone `.ko` files are retained for auditing. Root My Galaxy downloads
 the corresponding `ksud-*` file because `ksud late-load` loads its embedded
 `<kmi>_kernelsu.ko` asset.
+
+The S916B FZG1 module is derived from the nearby S9180 FZF5 Samsung-patched module by replacing only the equal-length kernel release string. Audit against the exact recovered FZG1 `vmlinux.elf` found all 205 undefined names, exact matches for all 135 versioned-symbol CRCs, and 71 non-exported imports. Use the kallsyms-aware `ksud` loader; plain `insmod` cannot resolve those imports. The root helper's guarded `--late-load` operation is preferred over direct `ksud insmod` because it handles the loader's security-domain and stdio transition. Module initialization is not yet confirmed on S916B hardware.
 
 The generic 6.1 files and E3Q pair are build-verified but device-untested. The
 E3Q pair is tied to the full S928U DZF2 release string and must not be replaced
