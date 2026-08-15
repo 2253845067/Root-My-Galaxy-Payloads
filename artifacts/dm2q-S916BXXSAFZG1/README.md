@@ -13,8 +13,8 @@ SIGRETURN is not offered for this target. It completed the waiter write and fake
 | File | SHA-256 |
 | --- | --- |
 | `cve-2026-43499-app.so` | `020a7acbe454292fed60e59dce179af8591a3bd2a8f3ec638ce2858794047951` |
-| `../../kernelsu/android13-5.15.189_kernelsu-dm2q-S916BXXSAFZG1.ko` | `3bf3097a36d839364b91a3b622940821fa998df9efc7898876eab247aaaaf363` |
-| `../../kernelsu/ksud-dm2q-S916BXXSAFZG1-kdp` | `077797b6cd07621b4352a55bbcfb03cb86a33f0fb044aeb4706445a21215eb57` |
+| `../../kernelsu/android13-5.15.189_kernelsu-dm2q-S916BXXSAFZG1.ko` | `0c6902794e13c4727cf69c4039080b241760684a1aae929d380c4aa492ca9e84` |
+| `../../kernelsu/ksud-dm2q-S916BXXSAFZG1-kdp` | `5da5818d36da2d589496f91016078a43f50489e5c98b319db4eaa5ee475b86bd` |
 
 ## Build
 
@@ -64,7 +64,7 @@ Permissive
 
 ## Experimental KernelSU late-load
 
-The standalone KernelSU module has the exact FZG1 `vermagic`. All 205 imports exist in the recovered FZG1 kernel and all 135 versioned-symbol CRCs match. Plain `insmod` cannot resolve 71 non-exported imports. The supported test path is the root helper's `--late-load` wrapper, which invokes the kallsyms-aware `ksud` loader in a private mount namespace and verifies the KernelSU control fd.
+The standalone KernelSU module was built from Samsung's exact FZG1 source with the live config and matching clang. Its 200 imports all exist in the recovered FZG1 kernel. It has an empty `__versions` section for the kallsyms-aware manual loader, disables live text patching, and hard-stops the RKP syscall-table write. Plain `insmod` is not supported. Test through the root helper's `--late-load` wrapper, which invokes the matched `ksud` in a private mount namespace and verifies the KernelSU control fd.
 
 Push the late-load binary. The standalone `.ko` is included for audit and manual-loader debugging; the normal `--late-load` path uses the KMI module embedded in `ksud`.
 

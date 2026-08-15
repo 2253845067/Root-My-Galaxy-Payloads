@@ -61,21 +61,20 @@ SIGRETURN is intentionally not selectable in this profile. A hardware test used 
 
 ## KernelSU handoff
 
-The nearby Samsung-patched KernelSU v3.2.5 module for `S9180ZHS8FZF5` uses the same core kernel build number. A derived FZG1 copy changes only the equal-length kernel release string.
+The published pair is built from Samsung's released `SM-S916B_16_Opensource` source with the live FZG1 config and Android clang `r450784e`. It uses the Samsung KDP/RKP/DEFEX patch, disables live text patching, and hard-stops the RKP syscall-table write. Exact FZG1 source also required changing the KDP ucount helper type from `enum rlimit_type` to its real `enum ucount_type` ABI.
 
 Static audit against the recovered exact FZG1 `vmlinux.elf` produced:
 
 ```text
-undefined imports: 205
-names present in target: 205
-versioned imports: 135
-matching CRCs: 135
-non-exported imports: 71
+undefined imports: 200
+names present in target: 200
+__versions size: 0
+symtab/strtab: retained
 ```
 
 The non-exported imports require the kallsyms-aware `ksud` loader. Plain `insmod` is not supported. The documented path uses the root helper's guarded `--late-load` operation so the loader runs in a private mount namespace and its security-domain and stdio transition can complete safely.
 
-The first direct hardware `ksud insmod` invocation returned only `Killed`; the module state was not checked before this report. That result is compatible with either an early load failure or a successful module init followed by DEFEX/SELinux killing the old loader process. Do not repeat the direct call. Check `/proc/modules`, then use the guarded `--late-load` path.
+The old release-string-only module plus stale S9180 loader returned only `Killed`, and `/proc/modules` confirmed that it did not load. Do not repeat that pair or mix this new module with another `ksud`. Use the guarded `--late-load` path with the new matched pair.
 
 KernelSU initialization is not yet confirmed on this exact S916B build. The module contains Samsung KDP/RKP/DEFEX handling, but its live hook setup can still panic or reboot the device. Treat it as a separate one-shot experiment after root is confirmed.
 
