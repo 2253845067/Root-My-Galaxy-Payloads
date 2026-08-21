@@ -251,6 +251,17 @@ paired with the `su_daemon`-based root client/helper at
 `c2cd542c4de02c611ddd1f8a98f5adbfc584ee3cfae52bfaab36ca8a894e084f`). Both
 rebuild byte-identically from this branch.
 
+## p0_fingerprint.h validation status
+
+`src/targets/gts9u-X916BXXS6EZG3/p0_fingerprint.h` is present (required for
+the file to compile in `APP_PAYLOAD` builds) but **has not been exercised on
+real hardware**: the successful root chain documented above used the
+tracefs-based KASLR leak throughout, so the physical-fingerprint-oracle
+fallback path this file supports was never actually taken. Treat its
+contents as unverified until someone confirms the fallback path itself
+(e.g. by testing from a real `untrusted_app` context where tracefs is
+unavailable).
+
 ## KernelSU: not yet functional on this device — known gap
 
 A gts9u-specific KernelSU `.ko` was built (vermagic-matched, symbol-audited:
