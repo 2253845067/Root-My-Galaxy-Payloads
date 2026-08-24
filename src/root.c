@@ -610,9 +610,14 @@ int install_android_root(int fd) {
     }
     pr_info("root p0 reference holder ready=%d\n", holder_ready);
     if (!holder_ready) {
+#if defined(APP_S928_STABLE_RACE) && APP_S928_STABLE_RACE
+      pr_info("root p0 reference holder absent after S928 physical "
+              "handoff; bootstrap socket remains authoritative\n");
+#else
       root_child_done = 0;
       root_uid_after = root_uid_before;
       return 0;
+#endif
     }
 #if defined(APP_PHYS_VIRTUAL_BASE_ORACLE) && APP_PHYS_VIRTUAL_BASE_ORACLE
   } else if (installed) {

