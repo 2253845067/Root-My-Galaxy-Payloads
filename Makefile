@@ -15,6 +15,9 @@ endif
 ifeq ($(TARGET),dm1q-S911U1UES6DYI3)
 APP_TARGET_CFLAGS := -DSLIDE_STACK_WRITER=1
 endif
+ifeq ($(TARGET),a53x-A536EXXSNGZG3)
+API := 31
+endif
 
 TARGET_HEADER := src/targets/$(TARGET)/target.h
 TARGET_INCLUDE := targets/$(TARGET)/target.h
@@ -29,6 +32,9 @@ APP_PRELOAD := $(OUTDIR)/cve-2026-43499-app.so
 APP_RELEASE := $(OUTDIR)/cve-2026-43499-app.release.so
 APP_RELEASE_SIZE := 104128
 ROOT_HELPER := $(OUTDIR)/cve-2026-43499-root
+TARGET_CFLAGS :=
+APP_RELEASE_OPT := -Oz
+APP_RELEASE_LINK_FLAGS := -Wl,--gc-sections -Wl,--icf=all -s
 
 PRELOAD_SRCS := \
   src/main.c \
@@ -48,10 +54,22 @@ APP_PRELOAD_SRCS := \
   src/root.c \
   src/preload.c
 
+ifeq ($(TARGET),a53x-A536EXXSNGZG3)
+APP_PRELOAD_SRCS := \
+  src/targets/a53x-A536EXXSNGZG3/payload.c \
+  src/targets/a53x-A536EXXSNGZG3/chain.c \
+  src/targets/a53x-A536EXXSNGZG3/ghostlock.c \
+  src/targets/a53x-A536EXXSNGZG3/page.c
+PRELOAD_SRCS := $(APP_PRELOAD_SRCS)
+APP_RELEASE_OPT := -O2
+APP_RELEASE_LINK_FLAGS := -Wl,--gc-sections -Wl,--icf=all -s
+endif
+
 COMMON_CFLAGS := \
   -O2 -g0 -Wall -Wextra \
   -Wno-unused-parameter -Wno-sign-compare \
-  -Isrc -DTARGET_HEADER='"$(TARGET_INCLUDE)"'
+  -Isrc -DTARGET_HEADER='"$(TARGET_INCLUDE)"' \
+  $(TARGET_CFLAGS)
 
 .DEFAULT_GOAL := all
 
@@ -76,13 +94,14 @@ $(APP_PRELOAD): $(APP_PRELOAD_SRCS) $(TARGET_HEADER) src/offset.h src/common.h s
 	  -shared -pthread -o $@
 
 $(APP_RELEASE): $(APP_PRELOAD_SRCS) $(TARGET_HEADER) src/offset.h src/common.h src/kernelsnitch/*.h | $(OUTDIR)
-	$(TARGET_CC) -DAPP_PAYLOAD=1 $(APP_TARGET_CFLAGS) -fPIC -Oz -g0 \
+	$(TARGET_CC) -DAPP_PAYLOAD=1 $(APP_TARGET_CFLAGS) -fPIC $(APP_RELEASE_OPT) -g0 \
 	  -fno-unwind-tables -fno-asynchronous-unwind-tables \
 	  -ffunction-sections -fdata-sections \
 	  -Wall -Wextra -Wno-unused-parameter -Wno-sign-compare \
 	  -Isrc -DTARGET_HEADER='"$(TARGET_INCLUDE)"' \
+	  $(TARGET_CFLAGS) \
 	  $(APP_PRELOAD_SRCS) -shared -pthread \
-	  -Wl,--gc-sections -Wl,--icf=all -s -o $@
+	  $(APP_RELEASE_LINK_FLAGS) -o $@
 	@test $$(stat -c %s $@) -le $(APP_RELEASE_SIZE)
 	truncate -s $(APP_RELEASE_SIZE) $@
 
