@@ -150,9 +150,24 @@
       }
     },
     {
+      "payloadId": "dm3q-S918BXXSAFZF5",
+      "displayName": "Galaxy S23 Ultra SM-S918B | Kernel 5.15.189 (S918BXXSAFZF5)",
+      "models": ["SM-S918B"],
+      "kernelVersions": ["5.15.189"],
+      "requiresFreshP0Session": true,
+      "exploit": {
+        "url": "https://raw.githubusercontent.com/BuSung-dev/Root-My-Galaxy-Payloads/main/artifacts/dm3q-S918BXXSAFZF5/cve-2026-43499-app.so",
+        "size": 133344
+      },
+      "kernelsu": {
+        "url": "https://raw.githubusercontent.com/BuSung-dev/Root-My-Galaxy-Payloads/main/kernelsu/ksud-dm3q-S918BXXSAFZF5-kdp",
+        "size": 4879560
+      }
+    },
+    {
       "payloadId": "dm3q-S9180ZHS8FZF5",
       "displayName": "Galaxy S23 Ultra | Kernel 5.15.189",
-      "models": ["SM-S9180", "SM-S918B", "SM-S918N", "SM-S918Q", "SM-S918U", "SM-S918W", "SM-S918U1"],
+      "models": ["SM-S9180", "SM-S918N", "SM-S918Q", "SM-S918U", "SM-S918W", "SM-S918U1"],
       "kernelVersions": ["5.15.189"],
       "exploit": {
         "url": "https://raw.githubusercontent.com/BuSung-dev/Root-My-Galaxy-Payloads/main/artifacts/dm3q-S9180ZHS8FZF5/cve-2026-43499-app.so",
