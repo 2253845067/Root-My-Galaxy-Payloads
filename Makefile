@@ -15,13 +15,21 @@ endif
 ifeq ($(TARGET),dm1q-S911U1UES6DYI3)
 APP_TARGET_CFLAGS := -DSLIDE_STACK_WRITER=1
 endif
+ifeq ($(TARGET),gts9-X710XXS6EZF1)
+APP_TARGET_CFLAGS := -DSLIDE_STACK_WRITER=1
+endif
 ifeq ($(TARGET),a53x-A536EXXSNGZG3)
 API := 31
 endif
 
 TARGET_HEADER := src/targets/$(TARGET)/target.h
 TARGET_INCLUDE := targets/$(TARGET)/target.h
+UNAME_S := $(shell uname -s)
+ifeq ($(UNAME_S),Darwin)
+TARGET_CC := $(ANDROID_NDK_HOME)/toolchains/llvm/prebuilt/darwin-x86_64/bin/aarch64-linux-android$(API)-clang
+else
 TARGET_CC := $(ANDROID_NDK_HOME)/toolchains/llvm/prebuilt/linux-x86_64/bin/aarch64-linux-android$(API)-clang
+endif
 
 ifeq ($(wildcard $(TARGET_CC)),)
 $(error set ANDROID_NDK_HOME to an Android NDK containing $(TARGET_CC))

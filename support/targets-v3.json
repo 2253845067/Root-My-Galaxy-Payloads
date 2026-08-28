@@ -282,6 +282,25 @@
         "url": "https://raw.githubusercontent.com/BuSung-dev/Root-My-Galaxy-Payloads/main/kernelsu/ksud-dm1q-S911U1UES6DYI3-kdp",
         "size": 4758792
       }
+    },
+    {
+      "payloadId": "gts9-X710XXS6EZF1",
+      "displayName": "Galaxy Tab S9 SM-X710 | Kernel 5.15.189 (X710XXS6EZF1)",
+      "models": [
+        "SM-X710"
+      ],
+      "kernelVersions": [
+        "5.15.189"
+      ],
+      "requiresFreshP0Session": true,
+      "exploit": {
+        "url": "https://raw.githubusercontent.com/BuSung-dev/Root-My-Galaxy-Payloads/main/artifacts/gts9-X710XXS6EZF1/cve-2026-43499-app.so",
+        "size": 132688
+      },
+      "kernelsu": {
+        "url": "https://raw.githubusercontent.com/BuSung-dev/Root-My-Galaxy-Payloads/main/kernelsu/ksud-gts9-X710XXS6EZF1-kdp",
+        "size": 4783256
+      }
     }
   ]
 }
