@@ -2028,6 +2028,11 @@ uint64_t slide_child_leak_stext(void) {
          !atomic_load(&slide_consumer_ready)) {
     usleep(1000);
   }
+  pr_info("slide route threads ready waiter_waiting=%d owner_started=%d "
+          "consumer_ready=%d p0_offset=%08zx\n",
+          atomic_load(&slide_waiter_waiting),
+          atomic_load(&slide_owner_started),
+          atomic_load(&slide_consumer_ready), slide_p0_offset);
   if (SLIDE_REQUEUE_ARM_USEC) {
     usleep(SLIDE_REQUEUE_ARM_USEC);
   }
@@ -2041,6 +2046,11 @@ uint64_t slide_child_leak_stext(void) {
     requeue_ret = futex_op(&slide_f_wait, FUTEX_CMP_REQUEUE_PI, 1, (void *)1,
                            &slide_f_pi_target, 0);
     requeue_errno = errno;
+    if (getenv("SLIDE_REQUEUE_VERBOSE") &&
+        requeue_polls <= 30) {
+      pr_info("slide cmp_requeue_pi poll=%d ret=%ld errno=%d\n",
+              requeue_polls, requeue_ret, requeue_errno);
+    }
     if (requeue_ret != 0) {
       break;
     }
