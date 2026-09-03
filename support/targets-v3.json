@@ -282,6 +282,21 @@
         "url": "https://raw.githubusercontent.com/BuSung-dev/Root-My-Galaxy-Payloads/main/kernelsu/ksud-dm1q-S911U1UES6DYI3-kdp",
         "size": 4758792
       }
+    },
+	{
+      "payloadId": "r12s-S721BXXSCDZF3",
+      "displayName": "Galaxy S24 FE | Kernel 6.1.157",
+      "models": ["SM-S721B"],
+      "kernelVersions": ["6.1.157"],
+      "requiresFreshP0Session": true,
+      "exploit": {
+        "url": "https://raw.githubusercontent.com/BuSung-dev/Root-My-Galaxy-Payloads/main/artifacts/r12s-S721BXXSCDZF3/cve-2026-43499-app.so", 
+        "size": 104128
+      },
+      "kernelsu": {
+        "url": "https://raw.githubusercontent.com/BuSung-dev/Root-My-Galaxy-Payloads/main/kernelsu/ksud-r12s-S721BXXSCDZF3-kdp",
+        "size": 6419768
+      }
     }
   ]
 }
