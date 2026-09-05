@@ -20,11 +20,16 @@ It intentionally does not contain Android application source code.
 | `pa3q-S9380ZHUBCZF1` | Galaxy S25 Ultra `SM-S9380` (`S9380ZHUBCZF1`) | `android15-6.6` | Device-tested |
 | `pa3q-S9380ZCUBCZF1` | Galaxy S25 Ultra `SM-S9380` (`S9380ZCUBCZF1`) | `android15-6.6` | Exploit extracted from APK, kernel strings TBD |
 | `galaxy-s25-series-2026-06-07` | Galaxy S25, S25+, S25 Edge, and S25 Ultra regional models | `6.6.98` | Device-tested |
-| `e3q-S928USQS6DZF2` | Galaxy S24 Ultra `SM-S928U` | `6.1.145` | Hardware debugging in progress |
+| `e3q-S928USQS6DZF2` | Galaxy S24 Ultra `SM-S928U1` | `6.1.145` | Device-tested |
+| `e3q-S9280ZCS6DZF2` | Galaxy S24 Ultra China `SM-S9280` | `6.1.145` | Device-tested |
 | `e2s-S926BXXUEDZDR` | Galaxy S24+ `SM-S926B` | `6.1.157` | Device-tested |
 | `essi-A566EXXSCCZG6` | Galaxy A56 5G `SM-A566E` | `6.6.102` | Device-tested |
 | `a36xq-A366WVLS3AYG1` | Galaxy A36 5G `SM-A366W` | `6.6.46` | Device-tested |
+| `a53x-A536EXXSNGZG3` | Galaxy A53 5G `SM-A536E` | `5.10.237` | Device-tested |
 | `dm3q-S9180ZHS8FZF5` | Galaxy S23 Ultra `SM-S9180` | `5.15.189` | Test in progress |
+| `q4q-F9360ZCSAIZF1` | Galaxy Z Fold4 `SM-F9360` | `5.10.236` | Device-tested |
+| `dm2q-S916BXXSAFZG1` | Galaxy S23+ `SM-S916B` | `5.15.189` | Experimental: hardware root from ADB shell; not in app feed |
+| `dm3q-S918BXXSAFZF5` | Galaxy S23 Ultra `SM-S918B` | `5.15.189` | Confirmed working: full chain through the app (Shizuku mode) incl. KernelSU late-load and granted `su` |
 | `r9q-S9010ZCSBGZE3` | Galaxy S22 `SM-S9010` | `android12-5.10` | Exploit from APK, offsets TBD |
 | `r9q-S9060ZCSBGZE3` | Galaxy S22+ `SM-S9060` | `android12-5.10` | Exploit from APK, offsets TBD |
 | `r9q-S9080ZCSBGZE3` | Galaxy S22 Ultra `SM-S9080` | `android12-5.10` | Exploit from APK, offsets TBD |
@@ -44,6 +49,10 @@ It intentionally does not contain Android application source code.
 | `q7q-F9460ZCS9GZF1` | Galaxy Z Flip 6 `SM-F9460` | `android15-6.6` | Exploit from APK, offsets TBD |
 | `q7q-F9560ZCS4DZG3` | Galaxy Z Fold 6 `SM-F9560` | `android15-6.6` | Exploit from APK, offsets TBD |
 | `q7q-F9660ZCSBBZG3` | Galaxy Z Fold 7 `SM-F9660` | `android15-6.6` | Exploit from APK, offsets TBD |
+
+The S916B FZG1 profile is shell-only today. Its exact tracefs route works from `adb shell`, but direct app-domain execution is not supported. Root My Galaxy would need to delegate the native runner through an authorized shell bridge such as Shizuku. See [`artifacts/dm2q-S916BXXSAFZG1/README.md`](artifacts/dm2q-S916BXXSAFZG1/README.md).
+
+The S918B FZF5 profile is hardware-verified through the app's Shizuku mode (exploit, KernelSU late-load, granted `su` under enforcing). Its physical-P0 fallback also engages in unprivileged app-domain execution, but rooting without Shizuku is not yet hardware-confirmed. See [`docs/SM-S918B-S918BXXSAFZF5.md`](docs/SM-S918B-S918BXXSAFZF5.md).
 
 Schema version 3 keeps each exploit and KernelSU artifact once. Its flat
 `models` and `kernelVersions` arrays define runtime compatibility. See
@@ -72,6 +81,7 @@ make TARGET=e1s-S921BXXSFDZF2 ANDROID_NDK_HOME=/path/to/android-ndk
 make TARGET=a15-A155NKSS6BYH1 ANDROID_NDK_HOME=/path/to/android-ndk
 make TARGET=essi-A566EXXSCCZG6 ANDROID_NDK_HOME=/path/to/android-ndk
 make TARGET=a36xq-A366WVLS3AYG1 ANDROID_NDK_HOME=/path/to/android-ndk
+make TARGET=a53x-A536EXXSNGZG3 ANDROID_NDK_HOME=/path/to/android-ndk
 make TARGET=dm3q-S9180ZHS8FZF5 ANDROID_NDK_HOME=/path/to/android-ndk
 make TARGET=dm1q-S9110ZCS8FZG1 ANDROID_NDK_HOME=/path/to/android-ndk
 make TARGET=dm2q-S9160ZCS8FZG1 ANDROID_NDK_HOME=/path/to/android-ndk
@@ -92,6 +102,8 @@ make TARGET=q7q-F9660ZCSBBZG3 ANDROID_NDK_HOME=/path/to/android-ndk
 make TARGET=r9q-S9010ZCSBGZE3 ANDROID_NDK_HOME=/path/to/android-ndk
 make TARGET=r9q-S9060ZCSBGZE3 ANDROID_NDK_HOME=/path/to/android-ndk
 make TARGET=r9q-S9080ZCSBGZE3 ANDROID_NDK_HOME=/path/to/android-ndk
+make TARGET=q4q-F9360ZCSAIZF1 ANDROID_NDK_HOME=/path/to/android-ndk
+make TARGET=dm2q-S916BXXSAFZG1 ANDROID_NDK_HOME=/path/to/android-ndk
 ```
 
 Outputs:
@@ -124,5 +136,12 @@ The SM-S926B DZDR analysis and device-validation record is in
 [`docs/SM-S926B-S926BXXUEDZDR.md`](docs/SM-S926B-S926BXXUEDZDR.md).
 The SM-A366W AYG1 device validation is in
 [`docs/SM-A366W-A366WVLS3AYG1.md`](docs/SM-A366W-A366WVLS3AYG1.md).
+The SM-F9360 AIZF1 (5.10, locked-BL, no-LTO clang-12 module) validation is in
+[`docs/SM-F9360-F9360ZCSAIZF1.md`](docs/SM-F9360-F9360ZCSAIZF1.md).
+The experimental SM-S916B FZG1 shell port and its exact hardware evidence are in [`docs/SM-S916B-S916BXXSAFZG1.md`](docs/SM-S916B-S916BXXSAFZG1.md).
+The SM-A536E GZG3 device validation is in
+[`docs/SM-A536E-A536EXXSNGZG3.md`](docs/SM-A536E-A536EXXSNGZG3.md).
+The SM-S9280 China (CHC) DZF2 port and validation record is in
+[`docs/SM-S9280-S9280ZCS6DZF2.md`](docs/SM-S9280-S9280ZCS6DZF2.md).
 
 Use only on devices you own or are explicitly authorized to test.
