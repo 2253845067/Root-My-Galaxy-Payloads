@@ -1,8 +1,9 @@
 # Samsung KernelSU late-load builds
 
-The files in this directory are built from KernelSU `v3.2.5`, commit
-`b0bc817b4e966aa6aa830834eaf6ef765d821d40`. They are not interchangeable
-between KMIs.
+The S938B CZE1 pair in this directory is built from KernelSU `v3.3.0`,
+commit `932014ab5b2c9b74a3d11e2ec4d17dd10fc9442e`, with the Samsung
+KDP/RKP/DEFEX compatibility port. Other entries retain their documented
+source revisions. Artifacts are not interchangeable between KMIs.
 
 ## Versioned artifacts
 
@@ -10,8 +11,8 @@ between KMIs.
 | --- | --- | --- | --- |
 | `android15-6.6_kernelsu-s25u-kdp.ko` | `SM-S938N`, `S938NKSUACZF1` | `android15-6.6` | Standalone reference module from the previously deployed S25U build |
 | `ksud-s25u-kdp` | `SM-S938N`, `S938NKSUACZF1` | `android15-6.6` | Late-load binary embedding the 6.6 module |
-| `android15-6.6_kernelsu-s938b-cze1-kdp.ko` | `SM-S938B`, `S938BXXS9CZE1` | `android15-6.6` | Exact S938B module with Samsung KDP/RKP/DEFEX adaptations |
-| `ksud-s938b-cze1-kdp` | Same exact S938B build | `android15-6.6` | Late-load binary embedding the S938B module; its `insmod /proc/self/fd/0` command reads the module directly from stdin |
+| `android15-6.6_kernelsu-s938b-cze1-kdp.ko` | `SM-S938B`, `S938BXXS9CZE1` | `android15-6.6` | KernelSU v3.3.0 module with Samsung KDP/RKP/DEFEX adaptations |
+| `ksud-s938b-cze1-kdp` | Same exact S938B build | `android15-6.6` | KernelSU v3.3.0 late-load binary embedding the S938B module; its `insmod /proc/self/fd/0` command reads the module directly from stdin |
 | `android15-6.6_kernelsu-A566EXXSCCZG6-kdp.ko` | `SM-A566E`, `A566EXXSCCZG6` | `android15-6.6` | Exact A56 module with target `vermagic`, audited for manual relocation; live text patching disabled for Exynos EL2 |
 | `ksud-A566EXXSCCZG6-kdp` | Same exact A56 build | `android15-6.6` | Device-tested late-load binary embedding the A56 6.6 no-patch-text module |
 | `android15-6.6_kernelsu-A366WVLS3AYG1-kdp.ko` | `SM-A366W`, `A366WVLS3AYG1` | `android15-6.6` | Exact A36 module with target `vermagic`, audited for manual relocation; live text patching disabled for Samsung KDP/RKP |
@@ -123,6 +124,27 @@ keeps normal `ksud insmod <path>` canonicalization, but handles
 `/proc/self/fd/0` by reading the module bytes directly from stdin so Root My
 Galaxy can pass the module without staging the `.ko` under a DEFEX-restricted
 filesystem path.
+
+## S938B CZE1 v3.3.0 rebuild
+
+The S938B CZE1 pair was rebuilt from KernelSU `v3.3.0` commit
+`932014ab5b2c9b74a3d11e2ec4d17dd10fc9442e` for the target firmware
+`S938BXXS9CZE1`. The complete source delta is recorded in
+[`patches/KernelSU-v3.3.0-samsung-kdp-rkp-defex-s938b.patch`](patches/KernelSU-v3.3.0-samsung-kdp-rkp-defex-s938b.patch).
+The published `.ko` is stripped of debug sections but retains the symbol table
+needed by the late loader; its `__versions` section is empty.
+
+A symbol-bearing `vmlinux` was also rebuilt from Samsung's
+`SM-S938B_16_Opensource.zip` and the CZE1 target configuration. The public
+source release is missing vendor dependencies required by
+`CONFIG_CHARGER_MAX77968` and `CONFIG_SEC_MM`, so those two options had to be
+disabled to complete the link. The resulting ELF is a reconstructed audit
+target, not Samsung's exact CZE1 build: its release string ends in
+`S938BXXU9CZDP-4k`, rather than `S938BXXS9CZE1-4k`. Against this reconstructed
+target, the module's 221 undefined symbols all resolve, including 67 found via
+kallsyms rather than target exports; the audit reports zero missing symbols and
+zero CRC mismatches. This does not replace an audit against an official or
+bit-for-bit recovered CZE1 `vmlinux.elf`, and hardware loading remains untested.
 
 ## 6.1 generalization
 
