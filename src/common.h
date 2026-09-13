@@ -13,6 +13,7 @@
 #include <dirent.h>
 #include <errno.h>
 #include <fcntl.h>
+#include <limits.h>
 #include <linux/futex.h>
 #include <linux/memfd.h>
 #include <pthread.h>
@@ -26,6 +27,7 @@
 #include <sys/ioctl.h>
 #include <sys/mman.h>
 #include <sys/prctl.h>
+#include <poll.h>
 #include <sys/resource.h>
 #include <sys/select.h>
 #include <sys/socket.h>
@@ -490,5 +492,12 @@ void start_p0_ref_keeper(void);
 #endif
 
 int install_android_root(int fd);
+
+/* App-managed runs keep detached exploit helpers tied to a lifecycle pipe. */
+int cve43499_app_managed(void);
+int cve43499_managed_init(void);
+int cve43499_managed_keeper_setup(void);
+int cve43499_managed_keeper_expired(void);
+void cve43499_managed_release(void);
 
 #endif

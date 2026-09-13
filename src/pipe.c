@@ -976,9 +976,10 @@ static void spawn_p0_ref_keeper(int retained_pipe_index) {
             child, retained_pipe_index);
     return;
   }
-  syscall(SYS_prctl, PR_SET_PDEATHSIG, 0, 0, 0, 0);
+  if (!cve43499_managed_keeper_setup()) {
+    _exit(1);
+  }
   syscall(SYS_prctl, PR_SET_NAME, "cve43499-p0ref", 0, 0, 0);
-  syscall(SYS_setsid);
   int null_fd = (int)syscall(
       SYS_openat, AT_FDCWD, "/dev/null", O_RDWR | O_CLOEXEC, 0);
   if (null_fd >= 0) {
@@ -1006,10 +1007,20 @@ static void spawn_p0_ref_keeper(int retained_pipe_index) {
   }
   if (retained_pipe_index < 0) {
     for (;;) {
-      pause();
+      if (cve43499_managed_keeper_expired()) {
+        _exit(0);
+      }
+      if (cve43499_app_managed()) {
+        usleep(100000);
+      } else {
+        pause();
+      }
     }
   }
   for (;;) {
+    if (cve43499_managed_keeper_expired()) {
+      _exit(0);
+    }
     if (transfer_p0_references_to_root(retained_pipe_index)) {
       _exit(0);
     }

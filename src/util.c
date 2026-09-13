@@ -1,6 +1,206 @@
 #include "common.h"
 #include "kernelsnitch/kernelsnitch.h"
 
+static int managed_lifetime_fd = -1;
+static int managed_release_fd = -1;
+static int managed_initialized;
+static int managed_released;
+
+static int managed_parse_fd(const char *name) {
+  const char *value = getenv(name);
+  if (!value || !*value) {
+    return -1;
+  }
+  char *end = NULL;
+  errno = 0;
+  long fd = strtol(value, &end, 10);
+  if (errno || end == value || *end || fd < 0 || fd > INT_MAX) {
+    return -1;
+  }
+  return (int)fd;
+}
+
+static int managed_write_byte(int fd, char value) {
+  for (;;) {
+    ssize_t written = write(fd, &value, sizeof(value));
+    if (written == (ssize_t)sizeof(value)) {
+      return 1;
+    }
+    if (written < 0 && errno == EINTR) {
+      continue;
+    }
+    return 0;
+  }
+}
+
+static int managed_read_byte(int fd, char *value) {
+  for (;;) {
+    ssize_t read_count = read(fd, value, sizeof(*value));
+    if (read_count == (ssize_t)sizeof(*value)) {
+      return 1;
+    }
+    if (read_count < 0 && errno == EINTR) {
+      continue;
+    }
+    return 0;
+  }
+}
+
+static int managed_holder_main(int lifetime_write_fd, int control_fd) {
+  char command = 0;
+  if (lifetime_write_fd < 0 ||
+      prctl(PR_SET_PDEATHSIG, SIGKILL) != 0 || getppid() == 1) {
+    _exit(1);
+  }
+  if (!managed_read_byte(control_fd, &command) || command != 'R') {
+    _exit(1);
+  }
+  if (prctl(PR_SET_PDEATHSIG, 0) != 0 || setsid() < 0 ||
+      !managed_write_byte(control_fd, 'A')) {
+    _exit(1);
+  }
+  for (int fd = STDIN_FILENO; fd <= STDERR_FILENO; fd++) {
+    if (fd != lifetime_write_fd && fd != control_fd) {
+      close(fd);
+    }
+  }
+  close(control_fd);
+  for (;;) {
+    pause();
+  }
+}
+
+int cve43499_app_managed(void) {
+  const char *value = getenv("CVE43499_APP_MANAGED");
+  return value && strcmp(value, "1") == 0;
+}
+
+int cve43499_managed_init(void) {
+  if (!cve43499_app_managed()) {
+    return 1;
+  }
+  if (managed_initialized) {
+    return managed_lifetime_fd >= 0;
+  }
+  managed_initialized = 1;
+
+  managed_lifetime_fd = managed_parse_fd("CVE43499_MANAGED_LIFETIME_FD");
+  managed_release_fd = managed_parse_fd("CVE43499_MANAGED_RELEASE_FD");
+  if (managed_lifetime_fd >= 0 && managed_release_fd >= 0) {
+    return 1;
+  }
+
+  int lifetime[2] = {-1, -1};
+  int control[2] = {-1, -1};
+  if (pipe2(lifetime, O_CLOEXEC) != 0 ||
+      socketpair(AF_UNIX, SOCK_STREAM | SOCK_CLOEXEC, 0, control) != 0) {
+    int saved_errno = errno;
+    if (lifetime[0] >= 0) close(lifetime[0]);
+    if (lifetime[1] >= 0) close(lifetime[1]);
+    if (control[0] >= 0) close(control[0]);
+    if (control[1] >= 0) close(control[1]);
+    errno = saved_errno;
+    managed_lifetime_fd = -1;
+    managed_release_fd = -1;
+    return 0;
+  }
+
+  pid_t holder = fork();
+  if (holder < 0) {
+    int saved_errno = errno;
+    close(lifetime[0]);
+    close(lifetime[1]);
+    close(control[0]);
+    close(control[1]);
+    errno = saved_errno;
+    managed_lifetime_fd = -1;
+    managed_release_fd = -1;
+    return 0;
+  }
+  if (holder == 0) {
+    close(lifetime[0]);
+    close(control[0]);
+    managed_holder_main(lifetime[1], control[1]);
+    _exit(1);
+  }
+
+  close(lifetime[1]);
+  close(control[1]);
+  managed_lifetime_fd = lifetime[0];
+  managed_release_fd = control[0];
+  char lifetime_text[16];
+  char release_text[16];
+  snprintf(lifetime_text, sizeof(lifetime_text), "%d", managed_lifetime_fd);
+  snprintf(release_text, sizeof(release_text), "%d", managed_release_fd);
+  if (setenv("CVE43499_MANAGED_LIFETIME_FD", lifetime_text, 1) != 0 ||
+      setenv("CVE43499_MANAGED_RELEASE_FD", release_text, 1) != 0) {
+    int saved_errno = errno;
+    kill(holder, SIGKILL);
+    waitpid(holder, NULL, 0);
+    close(managed_lifetime_fd);
+    close(managed_release_fd);
+    managed_lifetime_fd = -1;
+    managed_release_fd = -1;
+    errno = saved_errno;
+    return 0;
+  }
+  return 1;
+}
+
+int cve43499_managed_keeper_setup(void) {
+  if (!cve43499_app_managed()) {
+    if (prctl(PR_SET_PDEATHSIG, 0) != 0 || setsid() < 0) {
+      return 0;
+    }
+    return 1;
+  }
+  if (!managed_initialized || managed_lifetime_fd < 0) {
+    _exit(1);
+  }
+  if (managed_release_fd >= 0) {
+    close(managed_release_fd);
+    managed_release_fd = -1;
+  }
+  return 1;
+}
+
+int cve43499_managed_keeper_expired(void) {
+  if (!cve43499_app_managed()) {
+    return 0;
+  }
+  if (managed_lifetime_fd < 0) {
+    return 1;
+  }
+  struct pollfd descriptor = {
+    .fd = managed_lifetime_fd,
+    .events = POLLIN | POLLHUP | POLLERR,
+  };
+  int result;
+  do {
+    result = poll(&descriptor, 1, 0);
+  } while (result < 0 && errno == EINTR);
+  return result > 0 &&
+         (descriptor.revents & (POLLIN | POLLHUP | POLLERR | POLLNVAL));
+}
+
+void cve43499_managed_release(void) {
+  if (!cve43499_app_managed() || managed_released || managed_release_fd < 0) {
+    return;
+  }
+  managed_released = 1;
+  if (managed_write_byte(managed_release_fd, 'R')) {
+    char acknowledged = 0;
+    if (!managed_read_byte(managed_release_fd, &acknowledged) ||
+        acknowledged != 'A') {
+      pr_warning("managed lifecycle holder did not acknowledge release\n");
+    }
+  } else {
+    pr_warning("managed lifecycle holder release failed errno=%d\n", errno);
+  }
+  close(managed_release_fd);
+  managed_release_fd = -1;
+}
+
 static struct kernelsnitch_shared_state *ks;
 static size_t mm_objs_per_slab;
 static unsigned char *skb_buf;

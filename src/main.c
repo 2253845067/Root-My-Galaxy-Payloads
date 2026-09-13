@@ -198,9 +198,10 @@ static pid_t spawn_allocation_keeper(void) {
     return child;
   }
 
-  syscall(SYS_prctl, PR_SET_PDEATHSIG, 0, 0, 0, 0);
+  if (!cve43499_managed_keeper_setup()) {
+    _exit(1);
+  }
   syscall(SYS_prctl, PR_SET_NAME, "cve43499-hold", 0, 0, 0);
-  syscall(SYS_setsid);
 
   int null_fd = (int)syscall(
       SYS_openat, AT_FDCWD, "/dev/null", O_RDWR | O_CLOEXEC, 0);
@@ -224,6 +225,9 @@ static pid_t spawn_allocation_keeper(void) {
     .tv_nsec = 0,
   };
   for (;;) {
+    if (cve43499_managed_keeper_expired()) {
+      _exit(0);
+    }
     syscall(SYS_nanosleep, &hold, NULL);
   }
 }
